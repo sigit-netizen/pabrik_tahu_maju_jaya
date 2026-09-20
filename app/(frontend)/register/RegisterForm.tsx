@@ -29,6 +29,15 @@ export default function RegisterForm() {
       setError("Username, email, dan password wajib diisi.");
       return;
     }
+    if (!/^[a-zA-Z0-9._-]{3,50}$/.test(username.trim())) {
+      setError("Username 3-50 karakter, hanya huruf, angka, titik, underscore, dash.");
+      return;
+    }
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+    if (!emailOk) {
+      setError("Format email tidak valid.");
+      return;
+    }
     if (password.length < 4) {
       setError("Password harus terdiri dari minimal 4 karakter.");
       return;
