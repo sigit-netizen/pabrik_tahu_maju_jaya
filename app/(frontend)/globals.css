@@ -1,26 +1,82 @@
 @import "tailwindcss";
 
+@theme {
+  --color-cream: #f6f1e7;
+  --color-cream-dark: #ece3d0;
+  --color-cream-muted: #f0eadb;
+  --color-pine: #14342b;
+  --color-pine-deep: #0e2620;
+  --color-pine-soft: #1b4a3a;
+  --color-pine-muted: #1f3d33;
+  --color-brand: #d97706;
+  --color-brand-deep: #b45309;
+  --color-brand-soft: #fff7ed;
+  --color-line: rgba(20, 52, 43, 0.1);
+  --color-line-strong: rgba(20, 52, 43, 0.14);
+
+  --color-background: var(--color-cream);
+  --color-foreground: var(--color-pine);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --radius-2xl: 18px;
+  --radius-3xl: 24px;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f6f1e7;
+  --foreground: #14342b;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(20, 52, 43, 0.18) transparent;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: #d97706;
+  color: #f6f1e7;
+}
+
+/* Panel hijau — pola sangat halus, tidak ganggu bacaan */
+.dot-grid {
+  background-image: radial-gradient(rgba(246, 241, 231, 0.13) 1px, transparent 1.4px);
+  background-size: 22px 22px;
+}
+
+.dot-grid-dark {
+  background-image: radial-gradient(rgba(20, 52, 43, 0.07) 1.2px, transparent 1.4px);
+  background-size: 22px 22px;
+}
+
+/* Input focus — cincin oranye lembut, profesional */
+.auth-input {
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+.auth-input:focus {
+  outline: none;
+  border-color: #d97706;
+  box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.14);
+  background-color: #ffffff;
+}
+
+.auth-input::placeholder {
+  color: rgba(20, 52, 43, 0.35);
 }
