@@ -3,84 +3,107 @@ import type { ReactNode } from "react";
 
 type AuthShellProps = {
   children: ReactNode;
-  badge: string;
+  badge?: string;
   title: string;
   subtitle: string;
 };
 
-export default function AuthShell({ children, badge, title, subtitle }: AuthShellProps) {
+export default function AuthShell({ children, title, subtitle }: AuthShellProps) {
   return (
-    <div className="flex min-h-screen flex-col bg-cream text-pine">
-      <header className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-5">
-        <Link href="/" className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-pine text-cream">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <rect x="3" y="7" width="13" height="13" rx="2.5" fill="currentColor" opacity="0.95" />
-              <rect x="12" y="3" width="9" height="9" rx="2" fill="#D97706" />
-            </svg>
-          </span>
-          <span className="leading-tight">
-            <span className="block text-[15px] font-bold tracking-tight">
-              Tahu Maju Jaya
+    <div className="min-h-screen bg-cream text-pine dot-grid-dark">
+      {/* Header minimal — clean */}
+      <header className="sticky top-0 z-20 border-b border-line bg-cream/80 backdrop-blur-xl">
+        <div className="mx-auto flex h-[64px] w-full max-w-[1120px] items-center px-5 sm:px-6">
+          <Link href="/" className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-pine text-cream shadow-sm">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <rect x="3.5" y="7.5" width="12.5" height="12.5" rx="2.6" fill="currentColor" />
+                <rect x="12.5" y="3.5" width="8" height="8" rx="1.9" fill="#D97706" />
+              </svg>
             </span>
-            <span className="block text-xs font-medium text-pine/60">
-              Pencatatan Pabrik Tahu
+            <span className="leading-tight">
+              <span className="block text-[14.5px] font-bold tracking-tight">Tahu Maju Jaya</span>
+              <span className="block text-[11px] font-medium tracking-wide text-pine/55">
+                PENCATATAN PABRIK TAHU
+              </span>
             </span>
-          </span>
-        </Link>
-        <Link
-          href="/"
-          className="rounded-full border border-pine/15 bg-white/70 px-4 py-2 text-[13px] font-bold transition hover:border-brand hover:text-brand-deep"
-        >
-          ← Beranda
-        </Link>
+          </Link>
+        </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-6xl flex-1 items-center justify-center px-5 pb-14 pt-4">
-        <div className="grid w-full overflow-hidden rounded-3xl border border-pine/10 bg-white shadow-xl lg:grid-cols-[0.95fr_1.05fr]">
-          {/* Panel brand */}
-          <div className="dot-grid relative hidden flex-col justify-between bg-pine p-9 text-cream lg:flex">
-            <div>
-              <p className="inline-flex items-center gap-2 rounded-full bg-cream/10 px-4 py-1.5 text-[11px] font-bold tracking-widest uppercase">
-                <span className="h-2 w-2 rounded-full bg-brand" />
-                {badge}
-              </p>
-              <h2 className="mt-5 text-3xl font-extrabold leading-tight tracking-tight">
+      <main className="mx-auto flex w-full max-w-[1120px] flex-1 items-center justify-center px-4 py-8 sm:px-6 sm:py-10 lg:py-12">
+        <div className="grid w-full overflow-hidden rounded-[28px] border border-line bg-white shadow-[0_24px_64px_rgba(20,52,43,0.12),0_2px_8px_rgba(20,52,43,0.06)] lg:grid-cols-[1.05fr_1.15fr]">
+          {/* Left — brand panel */}
+          <div className="relative hidden flex-col justify-between overflow-hidden bg-pine p-10 text-cream lg:flex">
+            <div className="dot-grid absolute inset-0 opacity-100" aria-hidden />
+            {/* subtle gradient overlay */}
+            <div className="absolute inset-0 bg-gradient-to-b from-white/[0.04] via-transparent to-black/10" aria-hidden />
+
+            <div className="relative">
+              <h2 className="max-w-[14ch] text-[32px] font-[800] leading-[1.05] tracking-tight">
                 Pagi mencatat,
                 <br />
-                sore panen berkah.
+                <span className="text-cream/90">sore panen</span>
+                <br />
+                <span className="text-brand-soft">berkah.</span>
               </h2>
-              <p className="mt-3 max-w-sm text-sm leading-6 text-cream/70">
-                Setiap papan tahu tercatat — dari rendaman kedelai, penggilingan,
-                pencetakan, hingga terjual ke pelanggan.
+              <p className="mt-4 max-w-[32ch] text-[13.5px] leading-6 text-cream/65">
+                Setiap papan tahu tercatat — dari rendaman kedelai, penggilingan, pencetakan,
+                hingga terjual ke pelanggan. Sistem dibuat untuk nyaman dilihat di area produksi.
               </p>
             </div>
-            <ul className="mt-8 space-y-3 text-sm">
-              {[
-                "Kontras lembut, nyaman dibaca di area produksi",
-                "Akun diverifikasi admin demi keamanan data",
-                "Terhubung langsung ke API pencatatan pabrik",
-              ].map((t) => (
-                <li key={t} className="flex items-start gap-2.5 text-cream/85">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand text-[11px] font-extrabold text-white">
-                    ✓
-                  </span>
-                  {t}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-8 border-t border-cream/15 pt-5 text-[13px] text-cream/60">
-              Shift pagi 04.00 · Shift sore 14.00 · Libur Jumat siang
-            </p>
+
+            <div className="relative mt-10">
+              <ul className="space-y-3">
+                {[
+                  ["Kontras lembut", "Nyaman dibaca pagi hingga sore di area produksi"],
+                  ["Terverifikasi admin", "Setiap akun disetujui sebelum bisa mencatat"],
+                  ["Terhubung API", "Data langsung tersimpan ke sistem pabrik"],
+                ].map(([k, v]) => (
+                  <li
+                    key={k}
+                    className="flex gap-3 rounded-2xl border border-cream/10 bg-cream/[0.06] px-4 py-3.5 backdrop-blur"
+                  >
+                    <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand text-[11px] font-bold text-white">
+                      ✓
+                    </span>
+                    <span className="leading-tight">
+                      <span className="block text-[13px] font-bold text-cream">{k}</span>
+                      <span className="block text-[12px] leading-4 text-cream/60">{v}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mt-8 flex items-center gap-3 border-t border-cream/10 pt-6">
+                <div className="flex -space-x-2">
+                  <span className="h-8 w-8 rounded-full border-2 border-pine bg-cream" />
+                  <span className="h-8 w-8 rounded-full border-2 border-pine bg-brand" />
+                  <span className="h-8 w-8 rounded-full border-2 border-pine bg-cream-dark" />
+                </div>
+                <p className="text-[12px] leading-4 text-cream/60">
+                  Dipercaya tim produksi
+                  <br />
+                  <span className="font-semibold text-cream">shift pagi &amp; sore</span>
+                </p>
+              </div>
+            </div>
           </div>
 
-          {/* Panel form */}
-          <div className="p-6 sm:p-10">
-            <h1 className="text-2xl font-extrabold tracking-tight sm:text-[1.7rem]">
-              {title}
-            </h1>
-            <p className="mt-1.5 text-sm leading-6 text-pine/65">{subtitle}</p>
-            <div className="mt-6">{children}</div>
+          {/* Right — form */}
+          <div className="flex flex-col bg-white p-6 sm:p-9 lg:p-10">
+            <div className="mb-7">
+              <h1 className="text-[22px] font-extrabold tracking-tight text-pine sm:text-[24px]">
+                {title}
+              </h1>
+              <p className="mt-2 text-[13.5px] leading-5 text-pine/60">{subtitle}</p>
+            </div>
+
+            <div className="flex-1">{children}</div>
+
+            <p className="mt-8 border-t border-line pt-4 text-center text-[11px] font-medium tracking-wide text-pine/45">
+              © {new Date().getFullYear()} Pabrik Tahu Maju Jaya — dicatat rapi, dijual berkah
+            </p>
           </div>
         </div>
       </main>

@@ -31,18 +31,12 @@ export default function LoginForm() {
 
     setLoading(true);
     try {
-      // Panggil proxy server-side /api/auth/login — secret API_SECRET_KEY
-      // disuntikkan di server (app/api/auth/login/route.ts), TIDAK di browser.
       const res = await fetch("/api/auth/login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password }),
       });
 
-      // Baca sebagai teks dulu agar respons kosong (mis. 500 dari server)
-      // tidak membuat JSON.parse meledak dan menutupi pesan asli.
       const raw = await res.text();
       let json: ApiResult | null = null;
       try {
@@ -54,13 +48,10 @@ export default function LoginForm() {
       if (!res.ok) {
         if (res.status === 500 || !json) {
           setError(
-            "Server error (500). Kemungkinan file .env.local belum lengkap — pastikan SUPABASE_URL, SUPABASE_ANON_KEY, dan API_SECRET_KEY sudah diisi, lalu restart dev server."
+            "Server error (500). Pastikan SUPABASE_URL, SUPABASE_ANON_KEY, dan API_SECRET_KEY sudah diisi, lalu restart dev server."
           );
         } else if (res.status === 403) {
-          setError(
-            json.message ||
-              "Akun Anda belum disetujui administrator. Silakan hubungi admin pabrik."
-          );
+          setError(json.message || "Akun Anda belum disetujui administrator. Hubungi admin pabrik.");
         } else if (res.status === 401) {
           setError("Akses ditolak: API Key tidak valid. Hubungi administrator.");
         } else if (res.status === 429) {
@@ -72,16 +63,11 @@ export default function LoginForm() {
       }
 
       setSuccess(json?.message || "Login berhasil! Selamat datang.");
-      // Hapus password dari memori segera setelah berhasil.
       setPassword("");
       if (json?.data) {
         try {
-          // sessionStorage (bukan localStorage): data sesi otomatis hilang
-          // saat tab ditutup — penting karena PC pabrik bisa dipakai bergantian.
           sessionStorage.setItem("ptmj_user", JSON.stringify(json.data));
-        } catch {
-          // abaikan jika sessionStorage tidak tersedia
-        }
+        } catch {}
       }
       setTimeout(() => router.push("/"), 1200);
     } catch {
@@ -92,11 +78,11 @@ export default function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+    <form onSubmit={handleSubmit} className="space-y-5" noValidate>
       {error && (
         <div
           role="alert"
-          className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium leading-5 text-red-800"
+          className="rounded-2xl border border-red-200 bg-red-50/80 px-4 py-3 text-[13px] font-medium leading-5 text-red-800"
         >
           {error}
         </div>
@@ -104,36 +90,45 @@ export default function LoginForm() {
       {success && (
         <div
           role="status"
-          className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium leading-5 text-emerald-900"
+          className="rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-[13px] font-medium leading-5 text-emerald-900"
         >
           {success}
         </div>
       )}
 
-      <div>
-        <label htmlFor="email" className="mb-1.5 block text-sm font-bold">
-          Email
-        </label>
-        <input
-          id="email"
-          type="email"
-          autoComplete="email"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          maxLength={254}
-          placeholder="nama@pabriktahu.id"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="auth-input h-12 w-full rounded-2xl border border-pine/20 bg-cream/60 px-4 text-[15px] transition placeholder:text-pine/35"
-        />
-      </div>
+      <div className="space-y-4">
+        <div>
+          <label htmlFor="email" className="mb-2 block text-[11px] font-bold tracking-widest text-pine/70 uppercase">
+            Email
+          </label>
+          <input
+            id="email"
+            type="email"
+            autoComplete="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            maxLength={254}
+            placeholder="nama@pabriktahu.id"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="auth-input h-[46px] w-full rounded-xl border border-line-strong bg-white px-4 text-[14px] font-medium text-pine shadow-sm placeholder:font-normal"
+          />
+        </div>
 
-      <div>
-        <label htmlFor="password" className="mb-1.5 block text-sm font-bold">
-          Password
-        </label>
-        <div className="relative">
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <label htmlFor="password" className="text-[11px] font-bold tracking-widest text-pine/70 uppercase">
+              Password
+            </label>
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="text-[11px] font-bold tracking-wide text-pine/50 transition hover:text-brand-deep"
+            >
+              {showPassword ? "Sembunyi" : "Lihat"}
+            </button>
+          </div>
           <input
             id="password"
             type={showPassword ? "text" : "password"}
@@ -142,26 +137,19 @@ export default function LoginForm() {
             placeholder="••••••••"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="auth-input h-12 w-full rounded-2xl border border-pine/20 bg-cream/60 px-4 pr-16 text-[15px] transition placeholder:text-pine/35"
+            className="auth-input h-[46px] w-full rounded-xl border border-line-strong bg-white px-4 text-[14px] font-medium text-pine shadow-sm"
           />
-          <button
-            type="button"
-            onClick={() => setShowPassword((v) => !v)}
-            className="absolute top-1/2 right-3 -translate-y-1/2 rounded-full px-3 py-1.5 text-xs font-bold text-pine/60 transition hover:bg-pine/5 hover:text-pine"
-          >
-            {showPassword ? "Sembunyi" : "Lihat"}
-          </button>
         </div>
       </div>
 
       <button
         type="submit"
         disabled={loading}
-        className="flex h-12 w-full items-center justify-center rounded-2xl bg-pine text-sm font-bold text-cream shadow-md transition hover:bg-pine-deep disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex h-[46px] w-full items-center justify-center rounded-xl bg-pine text-[13.5px] font-bold tracking-wide text-cream shadow-[0_8px_20px_rgba(20,52,43,0.18)] transition hover:bg-pine-deep active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? (
           <span className="flex items-center gap-2">
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-cream/40 border-t-cream" />
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-cream/30 border-t-cream" />
             Memeriksa akun…
           </span>
         ) : (
@@ -169,9 +157,9 @@ export default function LoginForm() {
         )}
       </button>
 
-      <p className="pt-1 text-center text-sm text-pine/65">
+      <p className="text-center text-[13px] leading-5 text-pine/60">
         Belum punya akun?{" "}
-        <Link href="/register" className="font-bold text-brand-deep hover:underline">
+        <Link href="/register" className="font-bold text-brand hover:text-brand-deep hover:underline">
           Daftar di sini
         </Link>
       </p>
