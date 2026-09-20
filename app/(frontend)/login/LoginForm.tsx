@@ -28,6 +28,12 @@ export default function LoginForm() {
       setError("Email dan password wajib diisi.");
       return;
     }
+    // Validasi format email di frontend — cegah sampah & injection sebelum ke server
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+    if (!emailOk) {
+      setError("Format email tidak valid.");
+      return;
+    }
 
     setLoading(true);
     try {
