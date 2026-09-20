@@ -1,119 +1,26 @@
 @import "tailwindcss";
 
-@theme {
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", sans-serif;
-  --font-display: ui-serif, Georgia, "Times New Roman", serif;
-
-  /* Palet Pabrik Tahu Maju Jaya */
-  --color-paper: #f6f1e7;
-  --color-paper-deep: #efe7d6;
-  --color-card: #fffdf8;
-  --color-line: #e7ddc8;
-  --color-ink: #1c1917;
-  --color-muted: #78716c;
-  --color-pine-950: #0c211a;
-  --color-pine-900: #14342b;
-  --color-pine-800: #1a4437;
-  --color-pine-700: #235847;
-  --color-soy-600: #b45309;
-  --color-soy-500: #d97706;
-  --color-soy-100: #fef3c7;
-  --color-soy-50: #fffbeb;
-}
-
 :root {
-  --background: #f6f1e7;
-  --foreground: #1c1917;
+  --background: #ffffff;
+  --foreground: #171717;
 }
 
-html {
-  scroll-behavior: smooth;
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
-
-/* Tekstur kertas halus — dot pattern */
-.paper-texture {
-  background-color: #f6f1e7;
-  background-image: radial-gradient(#d9cdb2 0.8px, transparent 0.8px);
-  background-size: 22px 22px;
-}
-
-.pine-texture {
-  background-color: #14342b;
-  background-image:
-    radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
-    linear-gradient(160deg, #17402f 0%, #10291f 62%, #0c211a 100%);
-  background-size:
-    26px 26px,
-    cover;
-}
-
-/* Input nyaman & aksesibel */
-.field-input {
-  width: 100%;
-  height: 3rem;
-  border-radius: 0.75rem;
-  border: 1.5px solid #e7ddc8;
-  background: #fffdf8;
-  padding: 0 0.9rem;
-  font-size: 0.95rem;
-  line-height: 1.5;
-  color: #1c1917;
-  outline: none;
-  transition:
-    border-color 150ms ease,
-    box-shadow 150ms ease,
-    background 150ms ease;
-}
-
-.field-input::placeholder {
-  color: #a8a29e;
-}
-
-.field-input:hover {
-  border-color: #d6c9ab;
-}
-
-.field-input:focus-visible {
-  border-color: #d97706;
-  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.18);
-  background: #fff;
-}
-
-.field-input[aria-invalid="true"] {
-  border-color: #dc2626;
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
-}
-
-.btn-primary {
-  min-height: 3rem;
-  border-radius: 0.75rem;
-  font-weight: 600;
-  font-size: 0.95rem;
-  transition:
-    transform 120ms ease,
-    background 150ms ease,
-    box-shadow 150ms ease;
-}
-
-.btn-primary:not(:disabled):active {
-  transform: translateY(1px);
-}
-
-.btn-primary:focus-visible {
-  outline: 2px solid #d97706;
-  outline-offset: 2px;
-}
-
-::selection {
-  background: #fcd34d;
-  color: #1c1917;
+  font-family: Arial, Helvetica, sans-serif;
 }

@@ -36,9 +36,6 @@ yarn-error.log*
 # vercel
 .vercel
 
-# local agent memory (never commit — private working notes)
-MEMORY.md
-
 # typescript
 *.tsbuildinfo
 next-env.d.ts
