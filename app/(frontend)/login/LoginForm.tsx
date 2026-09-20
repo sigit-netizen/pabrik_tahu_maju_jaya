@@ -4,10 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-// Kunci API untuk backend, diisi via .env.local -> NEXT_PUBLIC_API_KEY.
-// SENGAJA tanpa nilai default agar secret tidak tertanam di bundle JS / git.
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
-
 type ApiResult = {
   status: string;
   message: string;
@@ -33,21 +29,14 @@ export default function LoginForm() {
       return;
     }
 
-    // Fail closed: jangan kirim request tanpa API key.
-    if (!API_KEY) {
-      setError(
-        "Konfigurasi aplikasi belum lengkap (API key hilang). Hubungi administrator."
-      );
-      return;
-    }
-
     setLoading(true);
     try {
-      const res = await fetch("/api/login", {
+      // Panggil proxy server-side /api/auth/login — secret API_SECRET_KEY
+      // disuntikkan di server (app/api/auth/login/route.ts), TIDAK di browser.
+      const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": API_KEY,
         },
         body: JSON.stringify({ email: email.trim(), password }),
       });
