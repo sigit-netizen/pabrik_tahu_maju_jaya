@@ -1,57 +1,109 @@
-"use client";
-
 export type ViewKey = "dashboard" | "input" | "ai" | "pengaturan";
 
-export type RekapRow = {
-  id: string;
-  tanggal: string;
-  cetak: number;
-  masak: number;
-  status: "Tercatat" | "Proses" | "Selesai";
+/* ---------- Bentuk respons API (dari route backend, bukan tebakan) ---------- */
+
+/** GET /api/dashboard */
+export type RingkasanDashboard = {
+  total_cetak: number;
+  total_masak: number;
+  total_pendapatan: number;
+  total_pendapatan_rupiah: string;
+  rata_rata_cetak?: number;
+  harga_cetak_aktif?: number;
+  status_pabrik?: string;
 };
+
+export type TrenProduksi = {
+  tanggal: string;
+  jumlah_masak: number;
+  jumlah_cetak: number;
+  jumlah_pendapatan: number;
+  jumlah_pendapatan_rupiah?: string;
+};
+
+export type PrediksiMingguan = {
+  periode_mulai: string;
+  periode_selesai: string;
+  estimasi_total_cetak: number;
+  model?: string;
+};
+
+export type DashboardData = {
+  is_mock_data: boolean;
+  ringkasan: RingkasanDashboard;
+  grafik_tren_produksi: TrenProduksi[];
+  prediksi_mingguan: PrediksiMingguan;
+};
+
+/** GET /api/produksi */
+export type BarisProduksi = {
+  id: number | string;
+  created_at: string;
+  tanggal: string;
+  waktu_wib?: string;
+  jumlah_cetak: number;
+  jumlah_masak: number;
+  jumlah_pendapatan: number;
+  jumlah_pendapatan_rupiah: string;
+};
+
+export type Pagination = {
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+};
+
+/** GET|POST /api/ai/prediksi */
+export type DetailHarianPrediksi = {
+  hari: string;
+  tanggal: string;
+  estimasi_cetak: number;
+};
+
+export type Prediksi = {
+  id: string | number;
+  tanggal_prediksi?: string;
+  periode_mulai: string;
+  periode_selesai: string;
+  total_cetak_prediksi: number;
+  mae?: number | null;
+  mape?: number | null;
+  model_version?: string;
+  catatan_model?: string;
+  detail_harian?: DetailHarianPrediksi[];
+};
+
+/** GET /api/proxy/me */
+export type Pengguna = {
+  id: number;
+  username: string;
+  email: string;
+  status: number;
+};
+
+/* ---------- Baris input produksi (butuh `nama` untuk POST /api/produksi/input) ---------- */
 
 export type InputRow = {
   id: number;
+  nama: string;
   cetak: number;
   masak: number;
   done: boolean;
 };
 
-const HARIAN_LABEL = ["06.00", "08.00", "10.00", "12.00", "14.00", "16.00", "18.00"];
-const HARIAN_VAL = [42, 30, 55, 62, 58, 96, 118];
-
-const MINGGUAN_LABEL = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
-const MINGGUAN_VAL = [320, 410, 380, 520, 610, 740, 690];
-
-const BULANAN_LABEL = ["Mg 1", "Mg 2", "Mg 3", "Mg 4"];
-const BULANAN_VAL = [2100, 2650, 2480, 3120];
-
-export function getSeries(mode: "harian" | "mingguan" | "bulanan") {
-  if (mode === "harian") return { labels: HARIAN_LABEL, values: HARIAN_VAL };
-  if (mode === "mingguan") return { labels: MINGGUAN_LABEL, values: MINGGUAN_VAL };
-  return { labels: BULANAN_LABEL, values: BULANAN_VAL };
-}
-
-export const REKAP_AWAL: RekapRow[] = [
-  { id: "R-101", tanggal: "11 Okt 2026 — Pagi", cetak: 120, masak: 118, status: "Selesai" },
-  { id: "R-102", tanggal: "11 Okt 2026 — Sore", cetak: 96, masak: 90, status: "Proses" },
-  { id: "R-103", tanggal: "10 Okt 2026 — Pagi", cetak: 132, masak: 130, status: "Selesai" },
-  { id: "R-104", tanggal: "10 Okt 2026 — Sore", cetak: 88, masak: 84, status: "Selesai" },
-  { id: "R-105", tanggal: "09 Okt 2026 — Pagi", cetak: 140, masak: 126, status: "Tercatat" },
-  { id: "R-106", tanggal: "09 Okt 2026 — Sore", cetak: 104, masak: 101, status: "Selesai" },
-  { id: "R-107", tanggal: "08 Okt 2026 — Pagi", cetak: 118, masak: 115, status: "Selesai" },
-];
-
-export const INPUT_AWAL: InputRow[] = [
-  { id: 1, cetak: 24, masak: 22, done: true },
-  { id: 2, cetak: 30, masak: 28, done: true },
-  { id: 3, cetak: 18, masak: 0, done: false },
-  { id: 4, cetak: 0, masak: 0, done: false },
-  { id: 5, cetak: 0, masak: 0, done: false },
-];
+/* ---------- Helper tampilan ---------- */
 
 export function formatRibuan(n: number) {
-  return n.toLocaleString("id-ID");
+  return (n || 0).toLocaleString("id-ID");
+}
+
+export function rupiah(n: number) {
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0,
+  }).format(n || 0);
 }
 
 export function hariIniLabel() {
@@ -65,4 +117,17 @@ export function hariIniLabel() {
   } catch {
     return "Hari ini";
   }
+}
+
+/** "2026-10-17" -> "17 Okt" — untuk label sumbu grafik yang ringkas. */
+export function tanggalPendek(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
+}
+
+export function hariPendek(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("id-ID", { weekday: "short" }).replace(".", "");
 }

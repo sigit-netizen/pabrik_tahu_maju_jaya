@@ -85,7 +85,7 @@ export default function RegisterForm() {
       setSuccess("Registrasi berhasil! Akun Anda menunggu persetujuan admin sebelum bisa masuk.");
       setPassword("");
       setConfirm("");
-      setTimeout(() => router.push("/login"), 1600);
+      setTimeout(() => router.push("/"), 1600);
     } catch {
       setError("Tidak dapat terhubung ke server. Periksa koneksi internet Anda.");
     } finally {
@@ -213,7 +213,7 @@ export default function RegisterForm() {
 
       <p className="text-center text-[13px] leading-5 text-pine/60">
         Sudah punya akun?{" "}
-        <Link href="/login" className="font-bold text-brand hover:text-brand-deep hover:underline">
+        <Link href="/" className="font-bold text-brand hover:text-brand-deep hover:underline">
           Masuk di sini
         </Link>
       </p>

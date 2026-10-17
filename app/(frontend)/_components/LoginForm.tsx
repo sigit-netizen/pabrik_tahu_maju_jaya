@@ -73,9 +73,11 @@ export default function LoginForm() {
       if (json?.data) {
         try {
           sessionStorage.setItem("ptmj_user", JSON.stringify(json.data));
-        } catch {}
+        } catch (e) {
+          console.warn("[auth] sessionStorage tidak bisa ditulis:", e);
+        }
       }
-      setTimeout(() => router.push("/"), 1200);
+      setTimeout(() => router.push("/dashboard"), 1200);
     } catch {
       setError("Tidak dapat terhubung ke server. Periksa koneksi internet Anda.");
     } finally {

@@ -146,10 +146,6 @@ body {
 @keyframes tmj-spin-slow {
   to { transform: rotate(360deg); }
 }
-@keyframes tmj-marquee {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
-}
 @keyframes tmj-steam {
   0% { opacity: 0; transform: translateY(6px) scale(0.9); }
   40% { opacity: 0.9; }
@@ -209,9 +205,6 @@ body {
   background: rgba(246, 241, 231, 0.75);
   animation: tmj-steam 2.6s ease-in-out infinite;
 }
-
-.marquee-track { animation: tmj-marquee 26s linear infinite; }
-.marquee-track:hover { animation-play-state: paused; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

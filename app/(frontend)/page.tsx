@@ -1,12 +1,22 @@
 import type { Metadata } from "next";
-import DashboardApp from "./_components/dashboard/DashboardApp";
+import AuthShell from "./_components/AuthShell";
+import LoginForm from "./_components/LoginForm";
 
 export const metadata: Metadata = {
-  title: "Tahu Maju Jaya | Dashboard Pencatatan Pabrik",
-  description:
-    "Dashboard pencatatan Pabrik Tahu Maju Jaya — grafik produksi harian/mingguan/bulanan, input cetakan realtime, AI prediksi, dan pengaturan.",
+  title: "Masuk | Pabrik Tahu Maju Jaya",
+  description: "Masuk ke website pencatatan Pabrik Tahu Maju Jaya.",
+  // Halaman auth internal — jangan diindeks mesin pencari.
+  robots: { index: false, follow: false },
 };
 
-export default function Home() {
-  return <DashboardApp />;
+export default function HomePage() {
+  return (
+    <AuthShell
+      badge="Akses pencatat pabrik"
+      title="Selamat pagi, selamat datang kembali."
+      subtitle="Masuk dengan email dan password yang sudah disetujui administrator."
+    >
+      <LoginForm />
+    </AuthShell>
+  );
 }
