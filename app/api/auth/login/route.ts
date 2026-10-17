@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { setSessionCookie, SessionUser } from "@/lib/session";
 
 // Route ini adalah PROXY yang berjalan di SERVER.
 // Browser memanggil /api/auth/login TANPA header x-api-key.
@@ -34,10 +35,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: "error", message: "Payload terlalu besar" }, { status: 413 });
   }
 
-  const secret = process.env.API_SECRET_KEY;
+  const secret = process.env.API_AUTH_KEY || process.env.API_SECRET_KEY;
   if (!secret) {
     return NextResponse.json(
-      { status: "error", message: "Server misconfiguration: API_SECRET_KEY hilang" },
+      { status: "error", message: "Server misconfiguration: API_AUTH_KEY / API_SECRET_KEY hilang" },
       { status: 500 }
     );
   }
@@ -81,7 +82,11 @@ export async function POST(req: NextRequest) {
         json.data = rest;
       }
       if (json.details) delete json.details;
-      return NextResponse.json(json, { status: res.status });
+      const response = NextResponse.json(json, { status: res.status });
+      if (res.ok && json.status === "success" && json.data) {
+        setSessionCookie(response, json.data as SessionUser);
+      }
+      return response;
     } catch {
       return new NextResponse(text, {
         status: res.status,

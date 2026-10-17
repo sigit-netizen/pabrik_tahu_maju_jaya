@@ -27,10 +27,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: "error", message: "Payload terlalu besar" }, { status: 413 });
   }
 
-  const secret = process.env.API_SECRET_KEY;
+  const secret = process.env.API_AUTH_KEY || process.env.API_SECRET_KEY;
   if (!secret) {
     return NextResponse.json(
-      { status: "error", message: "Server misconfiguration: API_SECRET_KEY hilang" },
+      { status: "error", message: "Server misconfiguration: API_AUTH_KEY / API_SECRET_KEY hilang" },
       { status: 500 }
     );
   }
