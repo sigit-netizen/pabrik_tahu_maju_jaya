@@ -52,14 +52,17 @@ export default function LoginForm() {
       }
 
       if (!res.ok) {
+        /* Pesan sengaja generik. Versi sebelumnya menyebut nama variabel
+           lingkungan (SUPABASE_URL, API_SECRET_KEY) dan menyebut "API Key"
+           kepada pengguna yang BELUM login — itu petunjuk gratis bagi
+           penyerang tentang tumpukan teknologi dan lapisan autentikasi yang
+           dipakai. Detail teknis cukup tercatat di log server. */
         if (res.status === 500 || !json) {
-          setError(
-            "Server error (500). Pastikan SUPABASE_URL, SUPABASE_ANON_KEY, dan API_SECRET_KEY sudah diisi, lalu restart dev server."
-          );
+          setError("Server sedang bermasalah. Coba lagi beberapa saat lagi atau hubungi administrator.");
         } else if (res.status === 403) {
           setError(json.message || "Akun Anda belum disetujui administrator. Hubungi admin pabrik.");
         } else if (res.status === 401) {
-          setError("Akses ditolak: API Key tidak valid. Hubungi administrator.");
+          setError("Akses ditolak. Hubungi administrator.");
         } else if (res.status === 429) {
           setError("Terlalu banyak percobaan. Tunggu 1 menit lalu coba lagi.");
         } else {
@@ -69,13 +72,14 @@ export default function LoginForm() {
       }
 
       setSuccess(json?.message || "Login berhasil! Selamat datang.");
+      /* Password dibuang dari state segera setelah dipakai. */
       setPassword("");
-      if (json?.data) {
-        try {
-          sessionStorage.setItem("ptmj_user", JSON.stringify(json.data));
-        } catch {}
-      }
-      setTimeout(() => router.push("/"), 1200);
+      /* Sengaja TIDAK ada penulisan ke sessionStorage/localStorage.
+         Identitas pengguna hanya hidup di cookie httpOnly yang tidak bisa
+         dibaca JavaScript, dan halaman dashboard mengambilnya sendiri dari
+         server lewat /api/proxy/me. Salinan di storage browser tidak menambah
+         fungsi apa pun, hanya menambah permukaan bocor kalau ada XSS. */
+      setTimeout(() => router.push("/dashboard"), 1200);
     } catch {
       setError("Tidak dapat terhubung ke server. Periksa koneksi internet Anda.");
     } finally {

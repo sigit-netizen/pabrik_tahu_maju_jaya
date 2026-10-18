@@ -9,6 +9,90 @@ type ApiResult = {
   message: string;
 };
 
+/*
+ * Aturan panjang & daftar password lemah.
+ *
+ * PENTING — ini BUKAN batas keamanan. Siapa pun bisa memanggil
+ * /api/auth/register langsung dengan curl dan melewati seluruh pemeriksaan di
+ * file ini. Backend saat ini hanya mewajibkan 4 karakter
+ * (app/(backend)/api/register/route.ts:87), dan itu terlalu lemah untuk akun
+ * yang bisa mencatat data produksi. Karena backend di luar lingkup tugas ini,
+ * aturan yang lebih ketat dipasang di sini supaya alur normalnya minimal aman;
+ * perbaikan yang sesungguhnya ada di PANDUAN_PERBAIKAN_BACKEND.md.
+ */
+const PANJANG_MIN = 8;
+const PANJANG_MAKS = 128;
+
+/** Password yang paling sering dipakai, plus yang menempel di keyboard. */
+const PASSWORD_LEMAH = new Set([
+  "123456",
+  "1234567",
+  "12345678",
+  "123456789",
+  "1234567890",
+  "12345",
+  "password",
+  "password1",
+  "password123",
+  "passw0rd",
+  "qwerty",
+  "qwerty123",
+  "qwertyuiop",
+  "asdfghjkl",
+  "zxcvbnm",
+  "iloveyou",
+  "admin",
+  "admin123",
+  "administrator",
+  "root",
+  "toor",
+  "letmein",
+  "welcome",
+  "welcome1",
+  "monkey",
+  "dragon",
+  "sunshine",
+  "princess",
+  "football",
+  "baseball",
+  "abc123",
+  "abcd1234",
+  "a1b2c3d4",
+  "111111",
+  "000000",
+  "654321",
+  "tahu",
+  "pabrik",
+  "pabriktahu",
+  "majujaya",
+  "tahumajujaya",
+  "bismillah",
+  "indonesia",
+  "jakarta",
+  "bandung",
+  "surabaya",
+  "sayang",
+  "cintaku",
+  "rahasia",
+  "secret",
+  "test123",
+  "user123",
+]);
+
+/** Mengembalikan pesan masalah, atau null kalau password sudah layak. */
+function periksaPassword(pw: string): string | null {
+  if (pw.length < PANJANG_MIN) return `Password minimal ${PANJANG_MIN} karakter.`;
+  if (pw.length > PANJANG_MAKS) return `Password maksimal ${PANJANG_MAKS} karakter.`;
+  if (PASSWORD_LEMAH.has(pw.toLowerCase())) {
+    return "Password itu terlalu mudah ditebak. Silakan pilih yang lain.";
+  }
+  // "aaaaaaaa" panjang tapi cuma satu karakter berbeda; "12341234" cuma empat.
+  if (new Set(pw).size < 4) {
+    return "Password terlalu berulang. Pakai variasi karakter yang lebih banyak.";
+  }
+  return null;
+}
+
 export default function RegisterForm() {
   const router = useRouter();
   const [username, setUsername] = useState("");
@@ -38,8 +122,9 @@ export default function RegisterForm() {
       setError("Format email tidak valid.");
       return;
     }
-    if (password.length < 4) {
-      setError("Password harus terdiri dari minimal 4 karakter.");
+    const masalahPassword = periksaPassword(password);
+    if (masalahPassword) {
+      setError(masalahPassword);
       return;
     }
     if (password !== confirm) {
@@ -68,14 +153,14 @@ export default function RegisterForm() {
       }
 
       if (!res.ok) {
+        /* Pesan generik — lihat catatan di LoginForm.tsx: menyebut nama
+           variabel lingkungan ke pengguna anonim adalah kebocoran informasi. */
         if (res.status === 500 || !json) {
-          setError(
-            "Server error (500). Pastikan SUPABASE_URL, SUPABASE_ANON_KEY, dan API_SECRET_KEY sudah diisi, lalu restart dev server."
-          );
+          setError("Server sedang bermasalah. Coba lagi beberapa saat lagi atau hubungi administrator.");
         } else if (res.status === 429) {
-          setError("Terlalu banyak percobaan daftar (maks 3x/menit). Tunggu sebentar lalu coba lagi.");
+          setError("Terlalu banyak percobaan daftar. Tunggu sebentar lalu coba lagi.");
         } else if (res.status === 401) {
-          setError("Akses ditolak: API Key tidak valid. Hubungi administrator.");
+          setError("Akses ditolak. Hubungi administrator.");
         } else {
           setError(json.message || "Gagal mendaftar. Coba lagi.");
         }
@@ -85,7 +170,7 @@ export default function RegisterForm() {
       setSuccess("Registrasi berhasil! Akun Anda menunggu persetujuan admin sebelum bisa masuk.");
       setPassword("");
       setConfirm("");
-      setTimeout(() => router.push("/login"), 1600);
+      setTimeout(() => router.push("/"), 1600);
     } catch {
       setError("Tidak dapat terhubung ke server. Periksa koneksi internet Anda.");
     } finally {
@@ -163,8 +248,8 @@ export default function RegisterForm() {
               id="password"
               type={showPassword ? "text" : "password"}
               autoComplete="new-password"
-              maxLength={128}
-              placeholder="Min. 4 karakter"
+              maxLength={PANJANG_MAKS}
+              placeholder={`Min. ${PANJANG_MIN} karakter`}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className={inputCls}
@@ -178,7 +263,7 @@ export default function RegisterForm() {
               id="confirm"
               type={showPassword ? "text" : "password"}
               autoComplete="new-password"
-              maxLength={128}
+              maxLength={PANJANG_MAKS}
               placeholder="Sama seperti di samping"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
@@ -213,7 +298,7 @@ export default function RegisterForm() {
 
       <p className="text-center text-[13px] leading-5 text-pine/60">
         Sudah punya akun?{" "}
-        <Link href="/login" className="font-bold text-brand hover:text-brand-deep hover:underline">
+        <Link href="/" className="font-bold text-brand hover:text-brand-deep hover:underline">
           Masuk di sini
         </Link>
       </p>
