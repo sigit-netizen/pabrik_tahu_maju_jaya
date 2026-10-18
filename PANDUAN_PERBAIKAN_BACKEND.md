@@ -160,7 +160,7 @@ Samakan jadi satu pesan generik.
 
 ---
 
-## Prioritas 4 — Sedang: AI "prediksi" diam-dirmen berbohong
+## Prioritas 4 — Tinggi: AI "prediksi" berbohong soal asal angkanya
 
 `app/(backend)/api/ai/prediksi/route.ts`
 
@@ -339,6 +339,69 @@ Harusnya `permission denied`, bukan data admin.
 
 ---
 
+## Prioritas 8 — Tinggi: dua endpoint publik tanpa autentikasi
+
+Ditemukan saat audit keamanan 18 Oktober 2026. Keduanya di `app/api/` dan
+`app/(backend)/api/`, jadi tidak bisa diperbaiki dari sisi frontend.
+
+### 8a. `/api/swagger` membuka seluruh peta API
+
+`app/api/swagger/route.ts` tidak memanggil `verifyApiKey()` maupun
+`verifyDualAuth()`. Siapa pun yang tahu URL-nya langsung menerima spesifikasi
+OpenAPI penuh.
+
+Terbukti (permintaan tanpa kredensial apa pun):
+
+```
+GET http://localhost:3000/api/swagger
+-> HTTP 200, 19.410 byte, 18 endpoint terdaftar
+```
+
+Isinya menyebut `x-api-key` 3x, `Bearer` 3x, `supabase` 5x, dan `password`
+21x. Jadi penyerang tidak perlu menebak apa pun: seluruh nama endpoint,
+parameter, dan skema request/response sudah tersedia, termasuk endpoint
+pengaturan admin dan pengaturan password.
+
+**Perbaikan:** panggil pemeriksa sesi di awal handler, sama seperti route
+produksi lain:
+
+```ts
+import { verifyDualAuth } from '@/lib/auth-check';
+
+export async function GET(request: Request) {
+  const authError = await verifyDualAuth(request);
+  if (authError) return authError;
+  // ...lanjutkan
+}
+```
+
+> Sisi tampilan sudah diperbaiki: `/api-doc` kini meminta sesi lebih dulu.
+> Tapi itu hanya lapisan UI — endpoint `/api/swagger` tetap terbuka dan masih
+> bisa dipanggil langsung.
+
+### 8b. `/api/konek_db` membalas sukses tanpa kredensial
+
+`app/(backend)/api/konek_db/route.ts` mengembalikan HTTP 200 dan pesan
+`"Mantap!"` kepada pemanggil anonim. Selain membocorkan bahwa backend memang
+hidup, route ini juga menembak Supabase setiap kali dipanggil, sehingga bisa
+dipakai untuk menghabiskan kuota.
+
+Terbukti:
+
+```
+GET http://localhost:3000/api/konek_db    (tanpa header apa pun)
+-> HTTP 200 {"message":"Mantap!"}
+```
+
+Sebagai pembanding, tujuh endpoint lain yang diuji membalas 401 dengan benar:
+`/api/dashboard`, `/api/produksi`, `/api/pengaturan/harga`,
+`/api/pengaturan/profile`, `/api/ai/prediksi`, `/api/proxy/me`.
+
+**Perbaikan:** bungkus dengan `verifyDualAuth()`, atau hapus route ini kalau
+hanya dipakai saat pengembangan.
+
+---
+
 ## Ringkasan urutan pengerjaan
 
 | # | Pekerjaan | Risiko kalau dilewati |
@@ -350,6 +413,7 @@ Harusnya `permission denied`, bukan data admin.
 | 5 | Bersihkan 6 warning + 4 pelanggaran gerbang | `npm run lint` & `floor-guard` tetap merah |
 | 6 | Service-role key, lalu RLS | Hash password & data produksi bisa dibaca publik |
 | 7 | Hentikan kebocoran hash & detail error | Hash bocor, pesan internal bocor |
+| 8 | Kunci `/api/swagger` dan `/api/konek_db` | Peta API & status DB terbuka untuk umum |
 
 Langkah 1-3 bisa dikerjakan tanpa downtime. Langkah 6 perlu dilakukan
 berurutan, karena menyalakan RLS sebelum service-role terpasang akan

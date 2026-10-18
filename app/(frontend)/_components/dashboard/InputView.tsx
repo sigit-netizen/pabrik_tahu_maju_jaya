@@ -34,12 +34,23 @@ function jamTampil(d: Date) {
   return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(/\./g, ":");
 }
 
-/** Draft lokal bisa rusak atau versi lama — bersihkan total sebelum dipakai lagi. */
+/** Draft lebih tua dari ini dibuang. Isinya nama pelanggan + angka produksi. */
+const UMUR_DRAFT_MS = 12 * 60 * 60 * 1000;
+
+/** Draft lokal bisa rusak, versi lama, atau sudah basi — bersihkan sebelum dipakai lagi. */
 function draftBersih(mentah: string | null): InputRow[] | null {
   try {
     if (!mentah) return null;
-    const j = JSON.parse(mentah) as { rows?: unknown } | null;
+    const j = JSON.parse(mentah) as { at?: unknown; rows?: unknown } | null;
     if (!Array.isArray(j?.rows) || j.rows.length === 0) return null;
+
+    /* Draft memuat nama pelanggan dan angka produksi. Di komputer yang dipakai
+       bergantian, draft yang mengendap lama berarti data pelanggan tetap bisa
+       dibaca orang berikutnya. Jadi yang basi dibuang, bukan dipulihkan. */
+    const at = typeof j.at === "string" ? Date.parse(j.at) : Number.NaN;
+    if (!Number.isFinite(at)) return null;
+    const umur = Date.now() - at;
+    if (umur < 0 || umur > UMUR_DRAFT_MS) return null;
     const hasil: InputRow[] = [];
     for (const mentah of j.rows as Partial<InputRow>[]) {
       const id = Number(mentah?.id);

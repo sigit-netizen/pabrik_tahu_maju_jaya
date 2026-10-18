@@ -132,6 +132,10 @@ export default function DashboardApp() {
       /* tetap keluar dari sisi UI */
     }
     try {
+      /* Versi sebelumnya menyimpan data pengguna di sini. Sekarang tidak lagi
+         (identitas hanya ada di cookie httpOnly), tapi penghapusan tetap
+         dipertahankan supaya nilai lama di browser yang sudah pernah login
+         ikut terbersihkan. */
       sessionStorage.removeItem("ptmj_user");
     } catch (e) {
       console.warn("[auth] sessionStorage tidak bisa dibersihkan:", e);
