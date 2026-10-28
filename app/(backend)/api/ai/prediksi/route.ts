@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { verifyDualAuth } from '@/lib/auth-check';
-import { calculateAiPrediction, AiValidationError } from '@/lib/ai-service';
+import { calculateAiPrediction, AiValidationError, parseRequestBody } from '@/lib/ai-service';
 
 /**
  * @swagger
@@ -118,10 +118,7 @@ export async function POST(request: Request) {
   if (authError) return authError;
 
   try {
-    let body = {};
-    try {
-      body = await request.json();
-    } catch {}
+    const body = await parseRequestBody(request);
 
     const {
       mode,

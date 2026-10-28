@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { verifyDualAuth } from '@/lib/auth-check';
-import { calculateAiPrediction, AiValidationError, DEFAULT_PRESET_DUMMY_7_HARI } from '@/lib/ai-service';
+import { calculateAiPrediction, AiValidationError, DEFAULT_PRESET_DUMMY_7_HARI, parseRequestBody } from '@/lib/ai-service';
 
 /**
  * @swagger
@@ -142,10 +142,7 @@ export async function POST(request: Request) {
   if (authError) return authError;
 
   try {
-    let body: Record<string, unknown> = {};
-    try {
-      body = (await request.json()) as Record<string, unknown>;
-    } catch {}
+    const body = await parseRequestBody(request);
 
     // Jalankan kalkulasi prediksi ONNX (Mendukung format kolom dataset langsung, array 7 hari, maupun body kosong {})
     const result = await calculateAiPrediction({

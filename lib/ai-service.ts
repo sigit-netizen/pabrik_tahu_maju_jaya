@@ -89,6 +89,37 @@ export class AiValidationError extends Error {
   }
 }
 
+/**
+ * Membaca request body JSON secara aman & toleran terhadap trailing comma.
+ * Mencegah silent fallback ke {} jika pengguna menyisakan koma di akhir baris Swagger.
+ */
+export async function parseRequestBody(request: Request): Promise<Record<string, unknown>> {
+  const text = await request.text();
+  if (!text || !text.trim()) {
+    return {};
+  }
+
+  const trimmed = text.trim();
+  // Bersihkan trailing comma sebelum kurung tutup } atau ] (misal: "masak_5": 32, \n })
+  const cleaned = trimmed
+    .replace(/,\s*}/g, '}')
+    .replace(/,\s*]/g, ']');
+
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (parsed && typeof parsed === 'object') {
+      return parsed as Record<string, unknown>;
+    }
+    return {};
+  } catch (err) {
+    throw new AiValidationError(
+      `Format data JSON tidak valid: ${err instanceof Error ? err.message : String(err)}. ` +
+      `Silakan periksa penulisan tanda koma atau tanda kurung pada Request Body.`,
+      { raw_snippet: trimmed.slice(0, 150) }
+    );
+  }
+}
+
 // ── ONNX SESSION SINGLETON ───────────────────────────────────────────────────
 let cachedOnnxSession: ort.InferenceSession | null = null;
 
