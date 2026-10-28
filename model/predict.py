@@ -15,15 +15,13 @@ Struktur Fitur (16 kolom sesuai RandomForest_Tuning.ipynb):
 - minggu_ke: Minggu ke dalam kalender ISO (1-52)
 - bulan: Bulan dalam kalender (1-12)
 
-Dua Jalur Prediksi:
-1. Mode "database":
-   Murni menggunakan data dari database `product_harian`.
-   VALIDASI KETAT: Harus tepat 7 hari! Jika kurang dari 7 atau lebih dari 7,
-   skrip akan menghasilkan ERROR / exception eksplisit.
-2. Mode "simulasi":
-   Menggunakan preset data dummy 7 hari bawaan sistem
-   (atau array 7 hari simulasi yang dikirimkan pengguna).
-   TIDAK MEMERLUKAN FILE CSV.
+Mendukung 3 Format Input:
+1. Format Baris Dataset CSV Langsung:
+   {"tanggal": "01-07/04/2025", "masak_1": 34, "cetak_1": 202, ... "masak_7": 25, "cetak_7": 150}
+2. Format Array Harian (Database / Simulasi):
+   {"data_simulasi": [{"hari": "Senin", "jumlah_masak": 34, "jumlah_cetak": 202}, ...]}
+3. Format Default (Otomatis):
+   Kirim {} -> Sistem otomatis mengeksekusi 7 hari preset Row #0 dataset.
 """
 
 import sys
@@ -61,6 +59,43 @@ def resolve_model_path():
             return p
     raise FileNotFoundError(f"Model best_rf_model.joblib tidak ditemukan di lokasi: {candidates}")
 
+def parse_date_like_notebook(tanggal_str):
+    """
+    Ekstraksi tanggal_bersih, minggu_ke, dan bulan persis seperti Cell 5 notebook:
+    df['tanggal_bersih'] = df['tanggal'].str.split('-').str[-1]
+    df['tanggal_bersih'] = pd.to_datetime(df['tanggal_bersih'], format='%d/%m/%Y')
+    df['minggu_ke'] = df['tanggal_bersih'].dt.isocalendar().week.astype(int)
+    df['bulan'] = df['tanggal_bersih'].dt.month
+    """
+    if not tanggal_str:
+        dt = datetime.now()
+        return dt, int(dt.isocalendar()[1]), int(dt.month)
+
+    tgl_clean = str(tanggal_str).strip()
+    if '-' in tgl_clean and '/' in tgl_clean:
+        # Format rentang seperti '01-07/04/2025'
+        end_part = tgl_clean.split('-')[-1]
+        try:
+            dt = datetime.strptime(end_part, '%d/%m/%Y')
+            return dt, int(dt.isocalendar()[1]), int(dt.month)
+        except Exception:
+            pass
+
+    # Format YYYY-MM-DD
+    try:
+        dt = datetime.strptime(tgl_clean[:10], '%Y-%m-%d')
+        return dt, int(dt.isocalendar()[1]), int(dt.month)
+    except Exception:
+        pass
+
+    # Format DD/MM/YYYY
+    try:
+        dt = datetime.strptime(tgl_clean[:10], '%d/%m/%Y')
+        return dt, int(dt.isocalendar()[1]), int(dt.month)
+    except Exception:
+        dt = datetime.now()
+        return dt, int(dt.isocalendar()[1]), int(dt.month)
+
 def get_builtin_simulation_records(target_dt):
     """Menyiapkan 7 hari data dummy otomatis dengan tanggal riil mundur dari target_dt"""
     records = []
@@ -73,7 +108,7 @@ def get_builtin_simulation_records(target_dt):
             'hari': NAMA_HARI[day_date.weekday()],
             'jumlah_masak': float(preset_item['jumlah_masak']),
             'jumlah_cetak': float(preset_item['jumlah_cetak']),
-            'sumber': 'Data Dummy Bawaan Sistem (Preset 7 Hari)'
+            'sumber': 'Data Dummy Bawaan Sistem (Row #0 DatasetPenjualanTahuv3.csv)'
         })
     return records
 
@@ -81,63 +116,77 @@ def process_prediction(input_payload):
     """
     Menjalankan proses inferensi Random Forest berdasarkan mode:
     - 'database' (Strict: harus tepat 7 hari data riil dari DB)
-    - 'simulasi' (Menggunakan data dummy otomatis atau input custom 7 hari)
+    - 'simulasi' (Menggunakan data dummy otomatis, format baris dataset, atau array kustom 7 hari)
     """
     mode = str(input_payload.get('mode', 'database')).lower()
     model_path = resolve_model_path()
     model = joblib.load(model_path)
 
-    raw_records = input_payload.get('data_7_hari') or input_payload.get('data_simulasi') or input_payload.get('records') or []
-    anchor_date_str = input_payload.get('tanggal') or input_payload.get('tanggal_acuan')
-    periode_mulai_str = input_payload.get('periode_mulai')
+    # ── JALUR A: FORMAT KOLOM DATASET CSV LANGSUNG ────────────────────────────
+    # Contoh: {"tanggal": "01-07/04/2025", "masak_1": 34, "cetak_1": 202, ...}
+    if 'masak_1' in input_payload and 'cetak_7' in input_payload:
+        last_dt, minggu_ke, bulan = parse_date_like_notebook(input_payload.get('tanggal'))
+        target_dt = last_dt + timedelta(days=1)
 
-    # ── 1. MODE SIMULASI DATA DUMMY (OTOMATIS / KUSTOM) ──────────────────────
-    if mode in ['simulasi', 'dummy']:
-        # Tentukan tanggal target prediksi
+        fitur_dict = {}
+        rincian_7_hari = []
+        for i in range(1, 8):
+            m = float(input_payload.get(f'masak_{i}', 0))
+            c = float(input_payload.get(f'cetak_{i}', 0))
+            fitur_dict[f'masak_{i}'] = m
+            fitur_dict[f'cetak_{i}'] = c
+            d_i = last_dt - timedelta(days=7 - i)
+            rincian_7_hari.append({
+                'urutan_hari': i,
+                'tanggal': d_i.strftime('%Y-%m-%d'),
+                'hari': NAMA_HARI[d_i.weekday()],
+                'jumlah_masak': m,
+                'jumlah_cetak': c,
+                'sumber': 'Format Kolom Dataset CSV Langsung'
+            })
+
+        fitur_dict['minggu_ke'] = minggu_ke
+        fitur_dict['bulan'] = bulan
+        sumber_deskripsi = f"Input Kolom Dataset Langsung (Tanggal Acuan: {last_dt.strftime('%d/%m/%Y')})"
+
+    # ── JALUR B: MODE SIMULASI DATA DUMMY ─────────────────────────────────────
+    elif mode in ['simulasi', 'dummy']:
+        raw_records = input_payload.get('data_simulasi') or input_payload.get('data_7_hari') or []
+        anchor_date_str = input_payload.get('tanggal') or input_payload.get('tanggal_acuan')
+        periode_mulai_str = input_payload.get('periode_mulai')
+
         if periode_mulai_str:
             try:
                 target_dt = datetime.strptime(periode_mulai_str[:10], '%Y-%m-%d')
             except Exception:
                 target_dt = datetime.now() + timedelta(days=1)
         elif anchor_date_str:
-            try:
-                anchor_dt = datetime.strptime(anchor_date_str[:10], '%Y-%m-%d')
-                target_dt = anchor_dt + timedelta(days=1)
-            except Exception:
-                target_dt = datetime.now() + timedelta(days=1)
+            last_dt, _, _ = parse_date_like_notebook(anchor_date_str)
+            target_dt = last_dt + timedelta(days=1)
         else:
             target_dt = datetime.now() + timedelta(days=1)
 
-        # Jika pengguna mengirimkan array custom simulasi
         if raw_records and len(raw_records) > 0:
-            if len(raw_records) < 7:
+            if len(raw_records) != 7:
                 raise ValueError(
-                    f"Validasi Gagal: Data simulasi yang dikirim kurang dari 7 hari (diterima: {len(raw_records)} hari). "
+                    f"Validasi Gagal: Data simulasi yang dikirim harus tepat 7 hari (diterima: {len(raw_records)} hari). "
                     f"Model Random Forest membutuhkan tepat 7 hari data produksi."
                 )
-            if len(raw_records) > 7:
-                raise ValueError(
-                    f"Validasi Gagal: Data simulasi yang dikirim lebih dari 7 hari (diterima: {len(raw_records)} hari). "
-                    f"Model Random Forest membutuhkan tepat 7 hari data produksi."
-                )
-            records = raw_records[:7]
+            records = raw_records
             sumber_deskripsi = "Input Kustom Pengguna (7 Hari)"
         else:
-            # Gunakan preset data dummy bawaan otomatis (tidak perlu ketik manual!)
             records = get_builtin_simulation_records(target_dt)
-            sumber_deskripsi = "Data Dummy Bawaan Sistem (Preset 7 Hari)"
+            sumber_deskripsi = "Data Dummy Bawaan Sistem (Row #0 DatasetPenjualanTahuv3.csv)"
 
-        # Ambil tanggal hari ke-7 (akhir window) untuk hitung minggu_ke dan bulan
-        # persis seperti df['tanggal_bersih'] = df['tanggal'].str.split('-').str[-1] di notebook
         try:
             day7_str = records[6].get('tanggal', '')[:10]
-            last_dt = datetime.strptime(day7_str, '%Y-%m-%d')
+            last_dt, minggu_ke, bulan = parse_date_like_notebook(day7_str)
         except Exception:
             last_dt = target_dt - timedelta(days=1)
+            minggu_ke = int(last_dt.isocalendar()[1])
+            bulan = int(last_dt.month)
 
         target_dt = last_dt + timedelta(days=1)
-        minggu_ke = int(last_dt.isocalendar()[1])
-        bulan = int(last_dt.month)
 
         fitur_dict = {}
         rincian_7_hari = []
@@ -161,8 +210,9 @@ def process_prediction(input_payload):
         fitur_dict['minggu_ke'] = minggu_ke
         fitur_dict['bulan'] = bulan
 
-    # ── 2. MODE DATABASE RIIL (STRICT VALIDATION 7 HARI) ────────────────────
+    # ── JALUR C: MODE DATABASE RIIL (STRICT VALIDATION 7 HARI) ────────────────
     else:
+        raw_records = input_payload.get('data_7_hari') or []
         jumlah_hari = len(raw_records)
         if jumlah_hari < 7:
             daftar_tgl = [r.get('tanggal') for r in raw_records if isinstance(r, dict) and r.get('tanggal')]
@@ -213,28 +263,14 @@ def process_prediction(input_payload):
             })
 
         last_tgl = str(sorted_records[-1].get('tanggal', ''))[:10]
-        try:
-            last_dt = datetime.strptime(last_tgl, '%Y-%m-%d')
-            target_dt = last_dt + timedelta(days=1)
-        except Exception:
-            target_dt = datetime.now() + timedelta(days=1)
-
-        # Ambil tanggal hari ke-7 (akhir window) untuk hitung minggu_ke dan bulan
-        # persis seperti df['tanggal_bersih'] = df['tanggal'].str.split('-').str[-1] di notebook
-        try:
-            day7_str = records[6].get('tanggal', '')[:10]
-            last_dt = datetime.strptime(day7_str, '%Y-%m-%d')
-        except Exception:
-            last_dt = target_dt - timedelta(days=1)
-
+        last_dt, minggu_ke, bulan = parse_date_like_notebook(last_tgl)
         target_dt = last_dt + timedelta(days=1)
-        minggu_ke = int(last_dt.isocalendar()[1])
-        bulan = int(last_dt.month)
+
         fitur_dict['minggu_ke'] = minggu_ke
         fitur_dict['bulan'] = bulan
         sumber_deskripsi = "Data Riil Database Supabase (product_harian)"
 
-    # ── 3. EKSEKUSI MODEL RANDOM FOREST (16 FITUR) ───────────────────────────
+    # ── EKSEKUSI MODEL RANDOM FOREST (16 FITUR) ───────────────────────────────
     feature_order = [
         'masak_1', 'cetak_1', 'masak_2', 'cetak_2', 'masak_3', 'cetak_3',
         'masak_4', 'cetak_4', 'masak_5', 'cetak_5', 'masak_6', 'cetak_6',
@@ -262,7 +298,7 @@ def process_prediction(input_payload):
             'estimasi_cetak': estimasi_hari
         })
 
-    # Selaraskan selisih pembulatan agar total_cetak_prediksi persis sama dengan jumlah detail
+    # Selaraskan selisih pembulatan
     selisih = total_cetak_prediksi - sum(d['estimasi_cetak'] for d in detail_harian)
     if selisih != 0 and detail_harian:
         detail_harian[-1]['estimasi_cetak'] += selisih

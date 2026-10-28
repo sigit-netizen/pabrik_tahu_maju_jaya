@@ -34,11 +34,12 @@ import { calculateAiPrediction, AiValidationError, DEFAULT_PRESET_DUMMY_7_HARI }
  *       500:
  *         description: Kesalahan server
  *   post:
- *     summary: Menjalankan simulasi peramalan AI (Data dummy sudah terisi otomatis di request body)
+ *     summary: Menjalankan simulasi peramalan AI (Mendukung Format Kolom Dataset CSV & Format Array)
  *     description: |
- *       Memicu simulasi peramalan Random Forest.
- *       Request body sudah menyertakan contoh data dummy 7 hari siap pakai.
- *       Bahkan jika dikirim body kosong `{}`, sistem otomatis menggunakan preset dummy 7 hari.
+ *       Mendukung 2 format input:
+ *       1. **Format Kolom Dataset CSV Langsung**: Mengirim kolom `masak_1..7`, `cetak_1..7`, dan `tanggal` persis seperti baris `DatasetPenjualanTahuv3.csv`.
+ *       2. **Format Array Harian**: Mengirim `data_simulasi` berisi 7 hari objek `{ hari, jumlah_masak, jumlah_cetak }`.
+ *       3. **Format Kosong `{}`**: Jika body kosong, sistem otomatis memakai data dummy bawaan (Row #0 dataset).
  *     tags:
  *       - AI Prediksi
  *     requestBody:
@@ -48,52 +49,78 @@ import { calculateAiPrediction, AiValidationError, DEFAULT_PRESET_DUMMY_7_HARI }
  *           schema:
  *             type: object
  *             properties:
- *               periode_mulai:
+ *               tanggal:
  *                 type: string
- *                 format: date
- *                 example: "2026-11-02"
- *                 description: "Tanggal awal periode 1 minggu ke depan yang ingin diprediksi"
+ *                 example: "01-07/04/2025"
+ *                 description: "Format rentang tanggal seperti di dataset CSV ('01-07/04/2025') atau tanggal ISO YYYY-MM-DD"
+ *               masak_1:
+ *                 type: number
+ *                 example: 34
+ *               cetak_1:
+ *                 type: number
+ *                 example: 202
+ *               masak_2:
+ *                 type: number
+ *                 example: 31
+ *               cetak_2:
+ *                 type: number
+ *                 example: 184
+ *               masak_3:
+ *                 type: number
+ *                 example: 33
+ *               cetak_3:
+ *                 type: number
+ *                 example: 200
+ *               masak_4:
+ *                 type: number
+ *                 example: 32
+ *               cetak_4:
+ *                 type: number
+ *                 example: 193
+ *               masak_5:
+ *                 type: number
+ *                 example: 32
+ *               cetak_5:
+ *                 type: number
+ *                 example: 193
+ *               masak_6:
+ *                 type: number
+ *                 example: 33
+ *               cetak_6:
+ *                 type: number
+ *                 example: 197
+ *               masak_7:
+ *                 type: number
+ *                 example: 25
+ *               cetak_7:
+ *                 type: number
+ *                 example: 150
  *               data_simulasi:
  *                 type: array
- *                 description: "Array data dummy 7 hari (sudah terisi otomatis, tidak perlu ketik manual)"
+ *                 description: "Alternatif jika menggunakan format array 7 hari"
  *                 items:
  *                   type: object
- *                   properties:
- *                     hari:
- *                       type: string
- *                     jumlah_masak:
- *                       type: number
- *                     jumlah_cetak:
- *                       type: number
  *           example:
- *             periode_mulai: "2026-11-02"
- *             data_simulasi:
- *               - hari: "Senin"
- *                 jumlah_masak: 34
- *                 jumlah_cetak: 202
- *               - hari: "Selasa"
- *                 jumlah_masak: 31
- *                 jumlah_cetak: 184
- *               - hari: "Rabu"
- *                 jumlah_masak: 33
- *                 jumlah_cetak: 200
- *               - hari: "Kamis"
- *                 jumlah_masak: 32
- *                 jumlah_cetak: 193
- *               - hari: "Jumat"
- *                 jumlah_masak: 32
- *                 jumlah_cetak: 193
- *               - hari: "Sabtu"
- *                 jumlah_masak: 33
- *                 jumlah_cetak: 197
- *               - hari: "Minggu"
- *                 jumlah_masak: 35
- *                 jumlah_cetak: 211
+ *             tanggal: "01-07/04/2025"
+ *             masak_1: 34
+ *             cetak_1: 202
+ *             masak_2: 31
+ *             cetak_2: 184
+ *             masak_3: 33
+ *             cetak_3: 200
+ *             masak_4: 32
+ *             cetak_4: 193
+ *             masak_5: 32
+ *             cetak_5: 193
+ *             masak_6: 33
+ *             cetak_6: 197
+ *             masak_7: 25
+ *             cetak_7: 150
  *     responses:
  *       200:
- *         description: Simulasi berhasil dieksekusi dengan data dummy
+ *         description: Simulasi berhasil dieksekusi dengan model Random Forest
  *       400:
- *         description: Validasi gagal (data_simulasi tidak tepat 7 hari)
+ *         description: Validasi gagal (data tidak sesuai aturan 7 hari)
  *       401:
  *         description: Akses ditolak
  *       500:
@@ -139,13 +166,25 @@ export async function POST(request: Request) {
   if (authError) return authError;
 
   try {
-    let body = {};
+    let body: Record<string, unknown> = {};
     try {
-      body = await request.json();
+      body = (await request.json()) as Record<string, unknown>;
     } catch {}
 
-    const { periode_mulai, data_simulasi } = body as {
+    // Jika user mengirimkan format baris dataset CSV langsung (masak_1..7, cetak_1..7)
+    if ('masak_1' in body && 'cetak_7' in body) {
+      const { executePythonModel } = await import('@/lib/ai-service');
+      const result = await executePythonModel(body);
+      return NextResponse.json({
+        status: 'success',
+        message: 'Simulasi peramalan AI dengan format kolom dataset CSV berhasil dieksekusi',
+        data: result,
+      });
+    }
+
+    const { periode_mulai, data_simulasi, tanggal } = body as {
       periode_mulai?: string;
+      tanggal?: string;
       data_simulasi?: Array<{
         hari?: string;
         tanggal?: string;
@@ -156,6 +195,7 @@ export async function POST(request: Request) {
 
     const result = await calculateAiPrediction({
       mode: 'simulasi',
+      tanggal,
       periode_mulai,
       data_simulasi,
     });
