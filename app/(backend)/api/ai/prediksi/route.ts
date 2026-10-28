@@ -6,51 +6,16 @@ import { calculateAiPrediction, AiValidationError } from '@/lib/ai-service';
 /**
  * @swagger
  * /api/ai/prediksi:
- *   get:
- *     summary: Mengambil hasil peramalan AI riil dari database (Strict 7 Hari)
- *     description: |
- *       Menampilkan peramalan kebutuhan produksi cetakan tahu 1 minggu ke depan menggunakan model Random Forest (`best_rf_model.joblib`).
- *       
- *       **Aturan Validasi Ketat (Strict):**
- *       - Membutuhkan **tepat 7 hari data historis produksi** di tabel `product_harian`.
- *       - Jika data di database **kurang dari 7 hari atau lebih dari 7 hari**, API akan **menolak (HTTP 400 Error)**.
- *       - Untuk pengujian tanpa data database 7 hari, gunakan endpoint simulasi: `/api/ai/prediksi/simulasi`.
- *     tags:
- *       - AI Prediksi
- *     parameters:
- *       - in: query
- *         name: tanggal
- *         required: false
- *         schema:
- *           type: string
- *           format: date
- *           example: "2026-10-28"
- *         description: "Tanggal acuan 7 hari terakhir (default: hari ini waktu WIB)"
- *       - in: query
- *         name: limit
- *         required: false
- *         schema:
- *           type: integer
- *           default: 5
- *         description: Batas riwayat prediksi yang diambil dari database jika ada
- *     responses:
- *       200:
- *         description: Berhasil memuat data prediksi AI riil dari database
- *       400:
- *         description: Data di database belum mencukupi tepat 7 hari
- *       401:
- *         description: Akses ditolak. Sesi login tidak valid.
- *       500:
- *         description: Kesalahan server
  *   post:
- *     summary: Menjalankan peramalan baru dengan data riil dari database (Strict 7 Hari)
+ *     summary: Peramalan AI dengan Data Riil Database (Strict 7 Hari)
  *     description: |
- *       Memicu eksekusi model Random Forest (`best_rf_model.joblib`) dengan mengambil **tepat 7 hari terakhir**
- *       dari tabel `product_harian`.
+ *       Mengeksekusi model **Random Forest ONNX (`best_rf_model.onnx`)** secara langsung via **ONNX Runtime (Node.js)** tanpa runtime Python.
+ *       Mengambil **tepat 7 hari data produksi terakhir** dari tabel database `product_harian`.
  *       
- *       **Validasi:**
- *       - Jika jumlah hari di database `< 7` atau `> 7`, sistem akan mengembalikan **HTTP 400 Error**.
- *       - Tidak ada pencampuran dummy pada mode ini.
+ *       **Aturan Validasi Ketat:**
+ *       - Membutuhkan **tepat 7 hari data historis produksi**.
+ *       - Jika data di database `< 7` atau `> 7` hari, sistem akan menolak dengan **HTTP 400 Error**.
+ *       - Untuk pengujian langsung tanpa mengisi database, gunakan endpoint simulasi: `/api/ai/prediksi/simulasi`.
  *     tags:
  *       - AI Prediksi
  *     requestBody:
@@ -63,29 +28,33 @@ import { calculateAiPrediction, AiValidationError } from '@/lib/ai-service';
  *               tanggal:
  *                 type: string
  *                 format: date
- *                 description: Tanggal acuan 7 hari terakhir di database (YYYY-MM-DD). Default = hari ini WIB.
+ *                 description: "Tanggal acuan 7 hari terakhir di database (YYYY-MM-DD). Default = hari ini WIB."
  *                 example: "2026-10-28"
  *               periode_mulai:
  *                 type: string
  *                 format: date
- *                 description: Tanggal awal periode yang ingin diprediksi. Default = keesokan hari setelah tanggal acuan.
+ *                 description: "Tanggal awal periode yang ingin diprediksi. Default = keesokan hari setelah tanggal acuan."
  *                 example: "2026-10-29"
  *               id_admin:
  *                 type: integer
- *                 description: ID Admin yang memicu proses prediksi
+ *                 description: "ID Admin yang memicu proses prediksi"
  *                 example: 2
+ *           example:
+ *             tanggal: "2026-10-28"
+ *             periode_mulai: "2026-10-29"
+ *             id_admin: 2
  *     responses:
  *       200:
- *         description: Prediksi berhasil dihitung dengan 7 hari data database
+ *         description: Prediksi AI ONNX berhasil dihitung menggunakan 7 hari data riil database
  *       400:
- *         description: Validasi gagal (data di database kurang atau lebih dari 7 hari)
+ *         description: Validasi gagal (data produksi di database belum genap atau melebihi 7 hari)
  *       401:
- *         description: Akses ditolak
+ *         description: Akses ditolak. Sesi login tidak valid.
  *       500:
- *         description: Gagal menjalankan model AI
+ *         description: Terjadi kesalahan server
  */
 
-// 1. GET: Ambil Prediksi Terkini & Riwayat (atau coba hitung live jika belum ada)
+// 1. GET: Ambil Prediksi Terkini & Riwayat (Digunakan oleh frontend AiView.tsx)
 export async function GET(request: Request) {
   const { error: authError } = verifyDualAuth(request);
   if (authError) return authError;
@@ -122,7 +91,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       status: 'success',
-      message: 'Data prediksi AI dihitung langsung oleh model Random Forest',
+      message: 'Data prediksi AI dihitung langsung oleh model Random Forest ONNX',
       data: {
         prediksi_aktif: livePrediction,
         riwayat_prediksi: [livePrediction],
@@ -166,7 +135,7 @@ export async function POST(request: Request) {
       id_admin?: number;
     };
 
-    // 1. Jalankan prediksi (Default: mode database dengan validasi ketat 7 hari)
+    // 1. Jalankan prediksi ONNX (Default: mode database dengan validasi ketat 7 hari)
     const result = await calculateAiPrediction({
       mode: mode || 'database',
       tanggal: customTanggal,
@@ -204,8 +173,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       status: 'success',
-      message: 'Perhitungan estimasi produksi mingguan dengan model Random Forest berhasil!',
-      data: savedRow || result,
+      message: 'Perhitungan estimasi produksi mingguan dengan model Random Forest (ONNX) berhasil!',
+      data: {
+        ...(savedRow ? { db_saved: savedRow } : {}),
+        ...result,
+      },
     });
   } catch (error) {
     if (error instanceof AiValidationError) {

@@ -5,41 +5,15 @@ import { calculateAiPrediction, AiValidationError, DEFAULT_PRESET_DUMMY_7_HARI }
 /**
  * @swagger
  * /api/ai/prediksi/simulasi:
- *   get:
- *     summary: Simulasi peramalan AI dengan data dummy bawaan (Otomatis & Siap Pakai)
- *     description: |
- *       Menjalankan model Random Forest (`best_rf_model.joblib`) menggunakan **data dummy 7 hari bawaan sistem**.
- *       
- *       **Keunggulan:**
- *       - Langsung klik "Execute" tanpa perlu mengisi data apa pun secara manual.
- *       - Berguna untuk menguji peramalan AI ketika database belum memiliki 7 hari data riil.
- *     tags:
- *       - AI Prediksi
- *     parameters:
- *       - in: query
- *         name: periode_mulai
- *         required: false
- *         schema:
- *           type: string
- *           format: date
- *           example: "2026-11-02"
- *         description: "Tanggal awal periode yang ingin diprediksi (opsional, default: Senin depan)"
- *     responses:
- *       200:
- *         description: Simulasi prediksi AI berhasil dijalankan dengan data dummy
- *       400:
- *         description: Parameter input tidak valid
- *       401:
- *         description: Akses ditolak. Sesi login tidak valid.
- *       500:
- *         description: Kesalahan server
  *   post:
- *     summary: Menjalankan simulasi peramalan AI (Mendukung Format Kolom Dataset CSV & Format Array)
+ *     summary: Simulasi Peramalan AI dengan Data Dummy (Otomatis & Siap Pakai)
  *     description: |
- *       Mendukung 2 format input:
- *       1. **Format Kolom Dataset CSV Langsung**: Mengirim kolom `masak_1..7`, `cetak_1..7`, dan `tanggal` persis seperti baris `DatasetPenjualanTahuv3.csv`.
- *       2. **Format Array Harian**: Mengirim `data_simulasi` berisi 7 hari objek `{ hari, jumlah_masak, jumlah_cetak }`.
- *       3. **Format Kosong `{}`**: Jika body kosong, sistem otomatis memakai data dummy bawaan (Row #0 dataset).
+ *       Mengeksekusi model **Random Forest ONNX (`best_rf_model.onnx`)** secara langsung via **ONNX Runtime (Node.js)** tanpa runtime Python.
+ *       
+ *       **Cara Pengujian:**
+ *       1. **Otomatis (Tinggal Klik Execute)**: Kirim body kosong `{}` untuk langsung memakai preset data dummy 7 hari bawaan sistem (Row #0 dataset pelatihan).
+ *       2. **Format Kolom Dataset CSV Langsung**: Mengirim kolom `masak_1..7`, `cetak_1..7`, dan `tanggal` persis seperti baris `DatasetPenjualanTahuv3.csv`.
+ *       3. **Format Array Harian Kustom**: Mengirim array `data_simulasi` berisi tepat 7 hari objek `{ hari, jumlah_masak, jumlah_cetak }`.
  *     tags:
  *       - AI Prediksi
  *     requestBody:
@@ -97,7 +71,7 @@ import { calculateAiPrediction, AiValidationError, DEFAULT_PRESET_DUMMY_7_HARI }
  *                 example: 150
  *               data_simulasi:
  *                 type: array
- *                 description: "Alternatif jika menggunakan format array 7 hari"
+ *                 description: "Alternatif jika menggunakan format array 7 hari kustom"
  *                 items:
  *                   type: object
  *           example:
@@ -118,15 +92,16 @@ import { calculateAiPrediction, AiValidationError, DEFAULT_PRESET_DUMMY_7_HARI }
  *             cetak_7: 150
  *     responses:
  *       200:
- *         description: Simulasi berhasil dieksekusi dengan model Random Forest
+ *         description: Simulasi prediksi AI ONNX berhasil dieksekusi
  *       400:
- *         description: Validasi gagal (data tidak sesuai aturan 7 hari)
+ *         description: Validasi gagal (data kustom tidak tepat 7 hari)
  *       401:
- *         description: Akses ditolak
+ *         description: Akses ditolak. Sesi login tidak valid.
  *       500:
- *         description: Kesalahan server
+ *         description: Terjadi kesalahan server
  */
 
+// 1. GET: Ambil hasil simulasi cepat data dummy (opsional / fallback browser)
 export async function GET(request: Request) {
   const { error: authError } = verifyDualAuth(request);
   if (authError) return authError;
@@ -142,7 +117,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       status: 'success',
-      message: 'Simulasi peramalan AI dengan data dummy bawaan berhasil dijalankan',
+      message: 'Simulasi peramalan AI (ONNX) dengan data dummy bawaan berhasil dijalankan',
       data: result,
       preset_dummy_tersedia: DEFAULT_PRESET_DUMMY_7_HARI,
     });
@@ -161,6 +136,7 @@ export async function GET(request: Request) {
   }
 }
 
+// 2. POST: Menjalankan Simulasi Peramalan AI (ONNX)
 export async function POST(request: Request) {
   const { error: authError } = verifyDualAuth(request);
   if (authError) return authError;
@@ -171,38 +147,15 @@ export async function POST(request: Request) {
       body = (await request.json()) as Record<string, unknown>;
     } catch {}
 
-    // Jika user mengirimkan format baris dataset CSV langsung (masak_1..7, cetak_1..7)
-    if ('masak_1' in body && 'cetak_7' in body) {
-      const { executePythonModel } = await import('@/lib/ai-service');
-      const result = await executePythonModel(body);
-      return NextResponse.json({
-        status: 'success',
-        message: 'Simulasi peramalan AI dengan format kolom dataset CSV berhasil dieksekusi',
-        data: result,
-      });
-    }
-
-    const { periode_mulai, data_simulasi, tanggal } = body as {
-      periode_mulai?: string;
-      tanggal?: string;
-      data_simulasi?: Array<{
-        hari?: string;
-        tanggal?: string;
-        jumlah_masak: number;
-        jumlah_cetak: number;
-      }>;
-    };
-
+    // Jalankan kalkulasi prediksi ONNX (Mendukung format kolom dataset langsung, array 7 hari, maupun body kosong {})
     const result = await calculateAiPrediction({
       mode: 'simulasi',
-      tanggal,
-      periode_mulai,
-      data_simulasi,
+      ...body,
     });
 
     return NextResponse.json({
       status: 'success',
-      message: 'Simulasi peramalan AI dengan data dummy berhasil dieksekusi',
+      message: 'Simulasi peramalan AI (ONNX) berhasil dieksekusi',
       data: result,
     });
   } catch (error) {

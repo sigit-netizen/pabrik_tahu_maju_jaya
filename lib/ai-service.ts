@@ -24,6 +24,7 @@ export interface AiPredictionResult {
   status: string;
   mode: 'database' | 'simulasi';
   model_version: string;
+  model_file?: string;
   engine?: 'onnx' | 'python';
   total_cetak_prediksi: number;
   periode_mulai: string;
@@ -577,6 +578,7 @@ export async function calculateAiPrediction(
       status: 'success',
       mode,
       model_version: 'RandomForestRegressor-ONNX-v1',
+      model_file: 'best_rf_model.onnx',
       engine: 'onnx',
       total_cetak_prediksi: totalCetakPrediksi,
       periode_mulai: formatDateToIso(targetDt),
