@@ -48,9 +48,44 @@ function formatNamaHari(dateStr: string): string {
 }
 
 /**
- * Format tahun dan bulan ke label bulan Indonesia (contoh: "Okt 2026")
+ * Format tanggal YYYY-MM-DD ke format lengkap (contoh: "Rabu, 28 Oktober 2026")
+ */
+function formatTanggalLengkap(dateStr: string): string {
+  try {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    return new Intl.DateTimeFormat('id-ID', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    }).format(date);
+  } catch {
+    return dateStr;
+  }
+}
+
+/**
+ * Format tahun dan bulan ke nama bulan lengkap Indonesia (contoh: "Oktober 2026")
  */
 function formatLabelBulan(year: number, month: number): string {
+  try {
+    const date = new Date(Date.UTC(year, month - 1, 1));
+    return new Intl.DateTimeFormat('id-ID', {
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    }).format(date);
+  } catch {
+    return `${year}-${month}`;
+  }
+}
+
+/**
+ * Format tahun dan bulan ke label bulan singkat Indonesia (contoh: "Okt 2026")
+ */
+function formatLabelBulanSingkat(year: number, month: number): string {
   try {
     const date = new Date(Date.UTC(year, month - 1, 1));
     return new Intl.DateTimeFormat('id-ID', {
@@ -64,13 +99,13 @@ function formatLabelBulan(year: number, month: number): string {
 }
 
 /**
- * Menghasilkan data grafik 7 hari terakhir (per hari)
+ * Menghasilkan data grafik 7 hari terakhir kalender (per hari, dihitung mundur dari HARI INI)
  */
-function get7HariTerakhir(
-  anchorDateStr: string,
+function get7HariTerakhirKalender(
+  todayWib: string,
   dataHarianMap: Map<string, { cetak: number; masak: number; pendapatan: number }>
 ) {
-  const [ay, am, ad] = anchorDateStr.split('-').map(Number);
+  const [ay, am, ad] = todayWib.split('-').map(Number);
   const result = [];
 
   for (let i = 6; i >= 0; i--) {
@@ -86,6 +121,7 @@ function get7HariTerakhir(
       tanggal: dateKey,
       label: formatLabelHari(dateKey),
       hari: formatNamaHari(dateKey),
+      is_hari_ini: dateKey === todayWib,
       jumlah_cetak: found.cetak,
       jumlah_masak: found.masak,
       total_harga: found.pendapatan,
@@ -96,13 +132,13 @@ function get7HariTerakhir(
 }
 
 /**
- * Menghasilkan data grafik 7 minggu terakhir (per minggu)
+ * Menghasilkan data grafik 7 minggu terakhir kalender (per minggu, dihitung mundur dari HARI INI / MINGGU INI)
  */
-function get7MingguTerakhir(
-  anchorDateStr: string,
+function get7MingguTerakhirKalender(
+  todayWib: string,
   dataHarianMap: Map<string, { cetak: number; masak: number; pendapatan: number }>
 ) {
-  const [ay, am, ad] = anchorDateStr.split('-').map(Number);
+  const [ay, am, ad] = todayWib.split('-').map(Number);
   const anchor = new Date(Date.UTC(ay, am - 1, ad));
   const result = [];
 
@@ -136,10 +172,11 @@ function get7MingguTerakhir(
 
     result.push({
       minggu_ke: 7 - w,
-      label: `Minggu ${7 - w}`,
+      label: w === 0 ? 'Minggu Ini' : `Minggu ${7 - w}`,
       periode: `${formatLabelHari(startStr)} - ${formatLabelHari(endStr)}`,
       tanggal_awal: startStr,
       tanggal_akhir: endStr,
+      is_minggu_ini: w === 0,
       jumlah_cetak: cetak,
       jumlah_masak: masak,
       total_harga: pendapatan,
@@ -150,13 +187,13 @@ function get7MingguTerakhir(
 }
 
 /**
- * Menghasilkan data grafik 7 bulan terakhir (per bulan)
+ * Menghasilkan data grafik 7 bulan terakhir kalender (per bulan, dihitung mundur dari BULAN INI)
  */
-function get7BulanTerakhir(
-  anchorDateStr: string,
+function get7BulanTerakhirKalender(
+  todayWib: string,
   dataHarianMap: Map<string, { cetak: number; masak: number; pendapatan: number }>
 ) {
-  const [ay, am] = anchorDateStr.split('-').map(Number);
+  const [ay, am] = todayWib.split('-').map(Number);
   const result = [];
 
   for (let m = 6; m >= 0; m--) {
@@ -183,10 +220,12 @@ function get7BulanTerakhir(
 
     result.push({
       bulan_ke: 7 - m,
-      label: formatLabelBulan(targetYear, targetMonth),
+      label: formatLabelBulanSingkat(targetYear, targetMonth),
+      nama_bulan: formatLabelBulan(targetYear, targetMonth),
       periode: monthPrefix,
       tahun: targetYear,
       bulan: targetMonth,
+      is_bulan_ini: m === 0,
       jumlah_cetak: cetak,
       jumlah_masak: masak,
       total_harga: pendapatan,
@@ -200,16 +239,17 @@ function get7BulanTerakhir(
  * @swagger
  * /api/dashboard:
  *   get:
- *     summary: Mendapatkan data statistik lengkap dashboard (Global, Hari Terakhir, Pesanan, dan Grafik)
+ *     summary: Mendapatkan data statistik lengkap dashboard berdasarkan tanggal kalender real-time
  *     description: |
- *       Menghitung metrik produksi dari database:
- *       1. Total cetakan, masak, dan pendapatan secara global (sepanjang masa).
- *       2. Data cetakan dan total harga pada hari terakhir produksi dicatat.
- *       3. Rekap pesanan pelanggan secara global, harian, dan mingguan.
- *       4. Grafik analitik dengan 3 mode rentang waktu:
- *          - Harian (7 hari terakhir)
- *          - Mingguan (7 minggu terakhir)
- *          - Bulanan (7 bulan terakhir)
+ *       Perhitungan harian, mingguan, dan bulanan berbasis TANGGAL KALENDER AKTIF (bukan data terakhir masuk):
+ *       1. Cetakan Global: Akumulasi seluruh cetakan, masak, dan pendapatan sepanjang masa.
+ *       2. Harian: Data riil pada tanggal hari ini (WIB).
+ *       3. Mingguan: Data riil 7 hari kalender terakhir sampai hari ini.
+ *       4. Bulanan: Data riil bulan kalender berjalan saat ini.
+ *       5. Grafik Analitik:
+ *          - Harian: 7 hari terakhir (per hari mundur dari hari ini)
+ *          - Mingguan: 7 minggu terakhir (per minggu mundur dari minggu ini)
+ *          - Bulanan: 7 bulan terakhir (per bulan mundur dari bulan ini)
  *     tags:
  *       - Dashboard
  *     parameters:
@@ -239,7 +279,12 @@ export async function GET(request: Request) {
     const modeQuery = (searchParams.get('mode') || 'harian').toLowerCase();
     const modeGrafik = ['harian', 'mingguan', 'bulanan'].includes(modeQuery) ? modeQuery : 'harian';
 
-    // ── 2. Ambil Seluruh Data Rekap Produksi dari product_harian ────────────────
+    // ── 2. Tentukan Tanggal Kalender Hari Ini (WIB - Real Time Date) ────────────
+    const todayWib = getWibTodayDate(); // Contoh: "2026-10-28"
+    const [ay, am] = todayWib.split('-').map(Number);
+    const currentMonthPrefix = `${ay}-${String(am).padStart(2, '0')}`; // Contoh: "2026-10"
+
+    // ── 3. Ambil Seluruh Data Rekap Produksi dari product_harian ────────────────
     const { data: allProduksi, error: prodError } = await supabase
       .from('product_harian')
       .select('id, created_at, jumlah_cetak, jumlah_masak, jumlah_pendapatan')
@@ -252,7 +297,7 @@ export async function GET(request: Request) {
       );
     }
 
-    // ── 3. Ambil Rincian Pesanan Pelanggan dari rincian_product_harian ──────────
+    // ── 4. Ambil Rincian Pesanan Pelanggan dari rincian_product_harian ──────────
     const { data: allRincian, error: rincianError } = await supabase
       .from('rincian_product_harian')
       .select('id, created_at, nama, jumlah_cetak, jumlah_masak, total')
@@ -262,7 +307,7 @@ export async function GET(request: Request) {
       console.warn('[Dashboard] Gagal membaca rincian pesanan:', rincianError.message);
     }
 
-    // ── 4. Ambil Tarif Harga Cetak Aktif Terkini ──────────────────────────────
+    // ── 5. Ambil Tarif Harga Cetak Aktif Terkini ──────────────────────────────
     const { data: hargaData } = await supabase
       .from('harga_cetak')
       .select('harga')
@@ -272,7 +317,7 @@ export async function GET(request: Request) {
 
     const hargaAktif = hargaData?.harga ? Number(hargaData.harga) : 5000;
 
-    // ── 5. Petakan Data Harian ke Map (YYYY-MM-DD -> { cetak, masak, pendapatan }) ──
+    // ── 6. Petakan Data Harian Berdasarkan Tanggal Kalender (YYYY-MM-DD WIB) ───
     const dataHarianMap = new Map<string, { cetak: number; masak: number; pendapatan: number }>();
     const tanggalUnikSet = new Set<string>();
 
@@ -293,21 +338,12 @@ export async function GET(request: Request) {
       }
     });
 
-    // ── 6. Tentukan Hari Terakhir (Latest Day) ──────────────────────────────────
-    const todayWib = getWibTodayDate();
-    let hariTerakhirTgl = todayWib;
+    // ── 7. Perhitungan HARIAN Murni Berdasarkan Tanggal Kalender Hari Ini ──────
+    // Mencari data tepat pada tanggal hari ini (todayWib). Jika belum ada input hari ini -> bernilai 0
+    const dataHariIni = dataHarianMap.get(todayWib) || { cetak: 0, masak: 0, pendapatan: 0 };
 
-    if (allProduksi && allProduksi.length > 0) {
-      hariTerakhirTgl = formatToWibDate(allProduksi[0].created_at);
-    } else if (allRincian && allRincian.length > 0) {
-      hariTerakhirTgl = formatToWibDate(allRincian[0].created_at);
-    }
-
-    const dataHariTerakhir = dataHarianMap.get(hariTerakhirTgl) || { cetak: 0, masak: 0, pendapatan: 0 };
-
-    // Rincian pesanan pelanggan pada hari terakhir
-    const rincianHariTerakhir = (allRincian || [])
-      .filter((r) => formatToWibDate(r.created_at) === hariTerakhirTgl)
+    const rincianHariIni = (allRincian || [])
+      .filter((r) => formatToWibDate(r.created_at) === todayWib)
       .map((r) => ({
         id: r.id,
         nama: r.nama,
@@ -318,7 +354,42 @@ export async function GET(request: Request) {
         waktu_wib: formatToWibDisplay(r.created_at),
       }));
 
-    // ── 7. Hitung Akumulasi Global (Semua Cetakan & Pesanan Sepanjang Masa) ─────
+    // Data catatan terakhir yang pernah masuk di database (sebagai referensi tanggal)
+    let tanggalTerakhirAdaData = todayWib;
+    if (allProduksi && allProduksi.length > 0) {
+      tanggalTerakhirAdaData = formatToWibDate(allProduksi[0].created_at);
+    } else if (allRincian && allRincian.length > 0) {
+      tanggalTerakhirAdaData = formatToWibDate(allRincian[0].created_at);
+    }
+    const dataTerakhirAdaData = dataHarianMap.get(tanggalTerakhirAdaData) || { cetak: 0, masak: 0, pendapatan: 0 };
+
+    // ── 8. Perhitungan MINGGUAN Berdasarkan 7 Hari Kalender Terakhir sampai Hari Ini ──
+    const grafik7Hari = get7HariTerakhirKalender(todayWib, dataHarianMap);
+    const totalCetakMingguan = grafik7Hari.reduce((acc, h) => acc + h.jumlah_cetak, 0);
+    const totalMasakMingguan = grafik7Hari.reduce((acc, h) => acc + h.jumlah_masak, 0);
+    const totalPendapatanMingguan = grafik7Hari.reduce((acc, h) => acc + h.total_harga, 0);
+
+    const tujuhHariSet = new Set(grafik7Hari.map((g) => g.tanggal));
+    const rincianMingguan = (allRincian || []).filter((r) => tujuhHariSet.has(formatToWibDate(r.created_at)));
+
+    // ── 9. Perhitungan BULANAN Berdasarkan Bulan Kalender Berjalan Saat Ini ────
+    let totalCetakBulanIni = 0;
+    let totalMasakBulanIni = 0;
+    let totalPendapatanBulanIni = 0;
+
+    for (const [tglKey, val] of dataHarianMap.entries()) {
+      if (tglKey.startsWith(currentMonthPrefix)) {
+        totalCetakBulanIni += val.cetak;
+        totalMasakBulanIni += val.masak;
+        totalPendapatanBulanIni += val.pendapatan;
+      }
+    }
+
+    const rincianBulanIni = (allRincian || []).filter((r) =>
+      formatToWibDate(r.created_at).startsWith(currentMonthPrefix)
+    );
+
+    // ── 10. Perhitungan GLOBAL (Akumulasi Sepanjang Masa) ─────────────────────
     const totalCetakGlobal = (allProduksi || []).reduce(
       (acc, curr) => acc + (Number(curr.jumlah_cetak) || 0),
       0
@@ -334,29 +405,22 @@ export async function GET(request: Request) {
     const totalHariProduksi = tanggalUnikSet.size || (allProduksi && allProduksi.length > 0 ? 1 : 0);
     const rataRataCetakHarian = totalHariProduksi > 0 ? Math.round(totalCetakGlobal / totalHariProduksi) : 0;
 
-    // ── 8. Hitung Pesanan Mingguan (7 Hari Terakhir dari Hari Terakhir) ────────
-    const grafik7Hari = get7HariTerakhir(hariTerakhirTgl, dataHarianMap);
-    const totalCetakMingguan = grafik7Hari.reduce((acc, h) => acc + h.jumlah_cetak, 0);
-    const totalMasakMingguan = grafik7Hari.reduce((acc, h) => acc + h.jumlah_masak, 0);
-    const totalPendapatanMingguan = grafik7Hari.reduce((acc, h) => acc + h.total_harga, 0);
-
-    const tujuhHariSet = new Set(grafik7Hari.map((g) => g.tanggal));
-    const rincianMingguan = (allRincian || []).filter((r) => tujuhHariSet.has(formatToWibDate(r.created_at)));
-
-    // ── 9. Buat Grafik Analitik (Harian, Mingguan, Bulanan) ───────────────────
+    // ── 11. Grafik Kalender (7 Hari, 7 Minggu, 7 Bulan Mundur dari Tanggal Hari Ini) ──
     const grafikHarian = grafik7Hari;
-    const grafikMingguan = get7MingguTerakhir(hariTerakhirTgl, dataHarianMap);
-    const grafikBulanan = get7BulanTerakhir(hariTerakhirTgl, dataHarianMap);
+    const grafikMingguan = get7MingguTerakhirKalender(todayWib, dataHarianMap);
+    const grafikBulanan = get7BulanTerakhirKalender(todayWib, dataHarianMap);
 
     let dataGrafikAktif: Array<Record<string, unknown>> = grafikHarian;
     if (modeGrafik === 'mingguan') dataGrafikAktif = grafikMingguan;
     if (modeGrafik === 'bulanan') dataGrafikAktif = grafikBulanan;
 
-    // ── 10. Susun Response Terstruktur & Lengkap Sesuai Permintaan ────────────
+    // ── 12. Kirim Response Lengkap Berdasarkan Tanggal Kalender Real-Time ─────
     return NextResponse.json({
       status: 'success',
-      message: 'Data statistik dashboard berhasil dimuat dari database',
+      message: 'Data statistik dashboard berhasil dimuat dari database berdasarkan tanggal kalender',
       data: {
+        tanggal_hari_ini_sistem: todayWib,
+
         // A. Cetakan Global (Semua Akumulasi Data Sepanjang Masa)
         cetakan_global: {
           total_cetak: totalCetakGlobal,
@@ -368,17 +432,52 @@ export async function GET(request: Request) {
           total_hari_produksi: totalHariProduksi,
         },
 
-        // B. Cetakan Hari Terakhir & Total Harga Hari Terakhir
-        hari_terakhir: {
-          tanggal: hariTerakhirTgl,
-          tanggal_wib: `${formatNamaHari(hariTerakhirTgl)}, ${formatLabelHari(hariTerakhirTgl)}`,
-          jumlah_cetak: dataHariTerakhir.cetak,
-          jumlah_masak: dataHariTerakhir.masak,
-          total_harga: dataHariTerakhir.pendapatan,
-          total_harga_rupiah: formatRupiah(dataHariTerakhir.pendapatan),
+        // B. Harian Murni Berdasarkan Tanggal Kalender Hari Ini (Bukan data terakhir masuk)
+        harian: {
+          tanggal: todayWib,
+          tanggal_wib: formatTanggalLengkap(todayWib),
+          jumlah_cetak: dataHariIni.cetak,
+          jumlah_masak: dataHariIni.masak,
+          total_harga: dataHariIni.pendapatan,
+          total_harga_rupiah: formatRupiah(dataHariIni.pendapatan),
+          total_pelanggan: rincianHariIni.length,
+          pesanan_pelanggan: rincianHariIni,
         },
 
-        // C. Pesanan (Global, Harian, dan Mingguan)
+        // C. Mingguan Murni Berdasarkan 7 Hari Kalender Terakhir sampai Hari Ini
+        mingguan: {
+          periode: `${grafik7Hari[0]?.label || ''} - ${grafik7Hari[6]?.label || ''}`,
+          tanggal_awal: grafik7Hari[0]?.tanggal,
+          tanggal_akhir: grafik7Hari[6]?.tanggal,
+          total_cetak: totalCetakMingguan,
+          total_masak: totalMasakMingguan,
+          total_pendapatan: totalPendapatanMingguan,
+          total_pendapatan_rupiah: formatRupiah(totalPendapatanMingguan),
+          total_transaksi_pelanggan: rincianMingguan.length,
+        },
+
+        // D. Bulanan Murni Berdasarkan Bulan Kalender Berjalan Saat Ini
+        bulanan: {
+          periode: currentMonthPrefix,
+          nama_bulan: formatLabelBulan(ay, am),
+          total_cetak: totalCetakBulanIni,
+          total_masak: totalMasakBulanIni,
+          total_pendapatan: totalPendapatanBulanIni,
+          total_pendapatan_rupiah: formatRupiah(totalPendapatanBulanIni),
+          total_transaksi_pelanggan: rincianBulanIni.length,
+        },
+
+        // E. Data Hari Terakhir Masuk (Sebagai referensi kapan terakhir ada input)
+        data_terakhir_masuk: {
+          tanggal: tanggalTerakhirAdaData,
+          tanggal_wib: formatTanggalLengkap(tanggalTerakhirAdaData),
+          jumlah_cetak: dataTerakhirAdaData.cetak,
+          jumlah_masak: dataTerakhirAdaData.masak,
+          total_harga: dataTerakhirAdaData.pendapatan,
+          total_harga_rupiah: formatRupiah(dataTerakhirAdaData.pendapatan),
+        },
+
+        // F. Pesanan Lengkap (Global, Harian Hari Ini, dan Mingguan)
         pesanan: {
           global: {
             total_transaksi_pelanggan: allRincian?.length || 0,
@@ -388,16 +487,16 @@ export async function GET(request: Request) {
             total_pendapatan_rupiah: formatRupiah(totalPendapatanGlobal),
           },
           harian: {
-            tanggal: hariTerakhirTgl,
-            total_pelanggan: rincianHariTerakhir.length,
-            total_cetak: dataHariTerakhir.cetak,
-            total_masak: dataHariTerakhir.masak,
-            total_pendapatan: dataHariTerakhir.pendapatan,
-            total_pendapatan_rupiah: formatRupiah(dataHariTerakhir.pendapatan),
-            rincian_pelanggan: rincianHariTerakhir,
+            tanggal: todayWib,
+            total_pelanggan: rincianHariIni.length,
+            total_cetak: dataHariIni.cetak,
+            total_masak: dataHariIni.masak,
+            total_pendapatan: dataHariIni.pendapatan,
+            total_pendapatan_rupiah: formatRupiah(dataHariIni.pendapatan),
+            rincian_pelanggan: rincianHariIni,
           },
           mingguan: {
-            rentang: `${grafik7Hari[0]?.label || ''} - ${grafik7Hari[6]?.label || ''}`,
+            periode: `${grafik7Hari[0]?.label || ''} - ${grafik7Hari[6]?.label || ''}`,
             total_transaksi_pelanggan: rincianMingguan.length,
             total_cetak: totalCetakMingguan,
             total_masak: totalMasakMingguan,
@@ -406,16 +505,16 @@ export async function GET(request: Request) {
           },
         },
 
-        // D. Grafik Analitik (Harian: 7 Hari, Mingguan: 7 Minggu, Bulanan: 7 Bulan)
+        // G. Grafik Analitik Berdasarkan Tanggal Kalender
         grafik: {
           mode_terpilih: modeGrafik,
           data: dataGrafikAktif,
-          harian: grafikHarian,       // 7 hari terakhir (per hari)
-          mingguan: grafikMingguan,   // 7 minggu terakhir (per minggu)
-          bulanan: grafikBulanan,     // 7 bulan terakhir (per bulan)
+          harian: grafikHarian,       // 7 hari kalender terakhir (per hari mundur dari hari ini)
+          mingguan: grafikMingguan,   // 7 minggu kalender terakhir (per minggu mundur dari minggu ini)
+          bulanan: grafikBulanan,     // 7 bulan kalender terakhir (per bulan mundur dari bulan ini)
         },
 
-        // E. Kompatibilitas Frontend yang Ada (Tidak merusak tampilan UI dashboard)
+        // H. Kompatibilitas Frontend yang Ada
         ringkasan: {
           total_cetak: totalCetakGlobal,
           total_masak: totalMasakGlobal,
