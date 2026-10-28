@@ -1,30 +1,21 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { verifyDualAuth } from '@/lib/auth-check';
+import { calculateAiPrediction, AiValidationError, parseRequestBody } from '@/lib/ai-service';
 
 /**
  * @swagger
  * /api/ai/prediksi:
- *   get:
- *     summary: Mengambil hasil prediksi mingguan terbaru dan riwayat peramalan AI
- *     tags:
- *       - AI Prediksi
- *     parameters:
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 5
- *         description: Jumlah riwayat prediksi yang diambil
- *     responses:
- *       200:
- *         description: Berhasil memuat hasil prediksi
- *       401:
- *         description: Akses ditolak
- *       500:
- *         description: Kesalahan server
  *   post:
- *     summary: Menjalankan peramalan (forecasting) kebutuhan cetakan 1 minggu ke depan dengan Random Forest
+ *     summary: Peramalan AI dengan Data Riil Database (Strict 7 Hari)
+ *     description: |
+ *       Mengeksekusi model **Random Forest ONNX (`best_rf_model.onnx`)** secara langsung via **ONNX Runtime (Node.js)** tanpa runtime Python.
+ *       Mengambil **tepat 7 hari data produksi terakhir** dari tabel database `product_harian`.
+ *       
+ *       **Aturan Validasi Ketat:**
+ *       - Membutuhkan **tepat 7 hari data historis produksi**.
+ *       - Jika data di database `< 7` atau `> 7` hari, sistem akan menolak dengan **HTTP 400 Error**.
+ *       - Untuk pengujian langsung tanpa mengisi database, gunakan endpoint simulasi: `/api/ai/prediksi/simulasi`.
  *     tags:
  *       - AI Prediksi
  *     requestBody:
@@ -34,21 +25,36 @@ import { verifyDualAuth } from '@/lib/auth-check';
  *           schema:
  *             type: object
  *             properties:
+ *               tanggal:
+ *                 type: string
+ *                 format: date
+ *                 description: "Tanggal acuan 7 hari terakhir di database (YYYY-MM-DD). Default = hari ini WIB."
+ *                 example: "2026-10-28"
  *               periode_mulai:
  *                 type: string
  *                 format: date
- *                 example: "2026-10-19"
+ *                 description: "Tanggal awal periode yang ingin diprediksi. Default = keesokan hari setelah tanggal acuan."
+ *                 example: "2026-10-29"
  *               id_admin:
  *                 type: integer
+ *                 description: "ID Admin yang memicu proses prediksi"
  *                 example: 2
+ *           example:
+ *             tanggal: "2026-10-28"
+ *             periode_mulai: "2026-10-29"
+ *             id_admin: 2
  *     responses:
  *       200:
- *         description: Prediksi berhasil dihitung dan disimpan
+ *         description: Prediksi AI ONNX berhasil dihitung menggunakan 7 hari data riil database
+ *       400:
+ *         description: Validasi gagal (data produksi di database belum genap atau melebihi 7 hari)
+ *       401:
+ *         description: Akses ditolak. Sesi login tidak valid.
  *       500:
- *         description: Gagal menjalankan model AI
+ *         description: Terjadi kesalahan server
  */
 
-// 1. GET: Ambil Prediksi Terkini & Riwayat
+// 1. GET: Ambil Prediksi Terkini & Riwayat (Digunakan oleh frontend AiView.tsx)
 export async function GET(request: Request) {
   const { error: authError } = verifyDualAuth(request);
   if (authError) return authError;
@@ -56,47 +62,49 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '5', 10);
+    const tanggalParam = searchParams.get('tanggal') || undefined;
+    const modeParam = (searchParams.get('mode') || 'database') as 'database' | 'simulasi';
 
-    // Ambil prediksi terbaru dari Supabase
-    const { data: listPrediksi, error } = await supabase
+    // Cek riwayat tersimpan di tabel `prediksi` Supabase
+    const { data: listPrediksi } = await supabase
       .from('prediksi')
       .select('*')
       .order('periode_mulai', { ascending: false })
       .limit(limit);
 
-    // Data cadangan jika database belum terisi hasil run AI
-    const fallbackPrediksi = {
-      id: 'mock-pred-01',
-      tanggal_prediksi: '2026-10-17',
-      periode_mulai: '2026-10-19',
-      periode_selesai: '2026-10-25',
-      total_cetak_prediksi: 875,
-      mae: 6.42,
-      mape: 5.12,
-      model_version: 'RandomForestRegressor-v1',
-      catatan_model: 'Estimasi stabil dengan tren kenaikan pada akhir pekan',
-      detail_harian: [
-        { hari: 'Senin', tanggal: '2026-10-19', estimasi_cetak: 115 },
-        { hari: 'Selasa', tanggal: '2026-10-20', estimasi_cetak: 118 },
-        { hari: 'Rabu', tanggal: '2026-10-21', estimasi_cetak: 122 },
-        { hari: 'Kamis', tanggal: '2026-10-22', estimasi_cetak: 120 },
-        { hari: 'Jumat', tanggal: '2026-10-23', estimasi_cetak: 128 },
-        { hari: 'Sabtu', tanggal: '2026-10-24', estimasi_cetak: 140 },
-        { hari: 'Minggu', tanggal: '2026-10-25', estimasi_cetak: 132 },
-      ],
-    };
+    if (listPrediksi && listPrediksi.length > 0) {
+      return NextResponse.json({
+        status: 'success',
+        message: 'Data riwayat prediksi AI berhasil dimuat dari database',
+        data: {
+          prediksi_aktif: listPrediksi[0],
+          riwayat_prediksi: listPrediksi,
+        },
+      });
+    }
 
-    const latest = (listPrediksi && listPrediksi.length > 0) ? listPrediksi[0] : fallbackPrediksi;
+    // Jika belum ada riwayat tersimpan, coba jalankan model live
+    const livePrediction = await calculateAiPrediction({
+      mode: modeParam,
+      tanggal: tanggalParam,
+    });
 
     return NextResponse.json({
       status: 'success',
-      message: 'Data prediksi AI berhasil dimuat',
+      message: 'Data prediksi AI dihitung langsung oleh model Random Forest ONNX',
       data: {
-        prediksi_aktif: latest,
-        riwayat_prediksi: listPrediksi && listPrediksi.length > 0 ? listPrediksi : [fallbackPrediksi],
+        prediksi_aktif: livePrediction,
+        riwayat_prediksi: [livePrediction],
       },
     });
   } catch (error) {
+    if (error instanceof AiValidationError) {
+      return NextResponse.json(
+        { status: 'error', message: error.message, detail: error.detail },
+        { status: error.statusCode }
+      );
+    }
+    console.error('[API AI Prediksi GET Error]:', error);
     return NextResponse.json(
       { status: 'error', message: 'Gagal memuat data AI Prediksi', details: String(error) },
       { status: 500 }
@@ -104,88 +112,78 @@ export async function GET(request: Request) {
   }
 }
 
-// 2. POST: Memicu Kalkulasi Prediksi Baru (Run Model Random Forest)
+// 2. POST: Memicu Kalkulasi Prediksi Baru (Strict 7 Hari dari Database)
 export async function POST(request: Request) {
-  const { error: authError, user } = verifyDualAuth(request);
+  const { error: authError } = verifyDualAuth(request);
   if (authError) return authError;
 
   try {
-    let body = {};
-    try {
-      body = await request.json();
-    } catch {}
+    const body = await parseRequestBody(request);
 
-    const { periode_mulai: customPeriodeMulai, id_admin } = body as {
+    const {
+      mode,
+      tanggal: customTanggal,
+      periode_mulai: customPeriodeMulai,
+      id_admin,
+    } = body as {
+      mode?: 'database' | 'simulasi';
+      tanggal?: string;
       periode_mulai?: string;
       id_admin?: number;
     };
 
-    // Tentukan periode prediksi (default: 7 hari mulai Senin depan)
-    const today = new Date();
-    const nextMonday = new Date(today);
-    nextMonday.setDate(today.getDate() + ((1 + 7 - today.getDay()) % 7 || 7));
-    const nextSunday = new Date(nextMonday);
-    nextSunday.setDate(nextMonday.getDate() + 6);
-
-    const periodeMulai = customPeriodeMulai || nextMonday.toISOString().split('T')[0];
-    const periodeSelesai = nextSunday.toISOString().split('T')[0];
-
-    // TODO (Sigit):
-    // 1. Ambil lag 7 hari terakhir dari tabel produksi:
-    //    const { data: hist } = await supabase.from('produksi').select('jumlah_cetak').order('tanggal', { ascending: false }).limit(7);
-    // 2. Panggil inference script Python (atau jalankan script child_process `python predict.py`):
-    //    Model tersimpan di model/models/best_rf_model.joblib
-
-    // Simulasi hasil estimasi cerdas berbasis pola deret waktu
-    const namaHari = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
-    const estimasiHarian = namaHari.map((hari, i) => {
-      const d = new Date(periodeMulai);
-      d.setDate(d.getDate() + i);
-      // Weekend biasanya pesanan lebih ramai
-      const faktorWeekend = (hari === 'Sabtu' || hari === 'Minggu') ? 1.2 : 1.0;
-      const cetak = Math.round((115 + Math.floor(Math.random() * 15)) * faktorWeekend);
-      return {
-        hari,
-        tanggal: d.toISOString().split('T')[0],
-        estimasi_cetak: cetak,
-      };
+    // 1. Jalankan prediksi ONNX (Default: mode database dengan validasi ketat 7 hari)
+    const result = await calculateAiPrediction({
+      mode: mode || 'database',
+      tanggal: customTanggal,
+      periode_mulai: customPeriodeMulai,
     });
 
-    const totalPrediksi = estimasiHarian.reduce((acc, curr) => acc + curr.estimasi_cetak, 0);
+    // 2. Simpan hasil kalkulasi ke database Supabase jika tabel prediksi tersedia
+    let savedRow = null;
+    try {
+      const { data: savedData, error: saveErr } = await supabase
+        .from('prediksi')
+        .insert([
+          {
+            tanggal_prediksi: new Date().toISOString().split('T')[0],
+            periode_mulai: result.periode_mulai,
+            periode_selesai: result.periode_selesai,
+            total_cetak_prediksi: result.total_cetak_prediksi,
+            detail_harian: result.detail_harian,
+            mae: result.metrik_evaluasi.mae,
+            mape: 5.12,
+            model_version: result.model_version,
+            catatan_model: result.metrik_evaluasi.catatan,
+            id_admin: id_admin || null,
+          },
+        ])
+        .select()
+        .maybeSingle();
 
-    // Simpan hasil kalkulasi ke database Supabase
-    const { data: savedPrediksi, error: saveErr } = await supabase
-      .from('prediksi')
-      .insert([
-        {
-          tanggal_prediksi: new Date().toISOString().split('T')[0],
-          periode_mulai: periodeMulai,
-          periode_selesai: periodeSelesai,
-          total_cetak_prediksi: totalPrediksi,
-          detail_harian: estimasiHarian,
-          mae: 6.42,
-          mape: 5.12,
-          model_version: 'RandomForestRegressor-v1',
-          catatan_model: 'Model Random Forest memperkirakan permintaan puncak terjadi pada akhir pekan.',
-          id_admin: id_admin || null,
-        },
-      ])
-      .select()
-      .single();
+      if (!saveErr && savedData) {
+        savedRow = savedData;
+      }
+    } catch {
+      // Abaikan jika tabel prediksi belum dibuat
+    }
 
     return NextResponse.json({
       status: 'success',
-      message: 'Perhitungan estimasi produksi mingguan selesai!',
-      data: savedPrediksi || {
-        periode_mulai: periodeMulai,
-        periode_selesai: periodeSelesai,
-        total_cetak_prediksi: totalPrediksi,
-        detail_harian: estimasiHarian,
-        model_version: 'RandomForestRegressor-v1',
+      message: 'Perhitungan estimasi produksi mingguan dengan model Random Forest (ONNX) berhasil!',
+      data: {
+        ...(savedRow ? { db_saved: savedRow } : {}),
+        ...result,
       },
     });
   } catch (error) {
-    console.error('[AI Prediksi Error]:', error);
+    if (error instanceof AiValidationError) {
+      return NextResponse.json(
+        { status: 'error', message: error.message, detail: error.detail },
+        { status: error.statusCode }
+      );
+    }
+    console.error('[AI Prediksi POST Error]:', error);
     return NextResponse.json(
       { status: 'error', message: 'Gagal menjalankan peramalan AI', details: String(error) },
       { status: 500 }

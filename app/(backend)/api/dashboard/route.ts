@@ -1,126 +1,257 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
 import { verifyDualAuth } from '@/lib/auth-check';
-import { formatToWibDate } from '@/lib/date-helper';
+import { getDashboardMetrics } from '@/lib/dashboard-service';
 
 /**
  * @swagger
  * /api/dashboard:
  *   get:
- *     summary: Mendapatkan data ringkasan metrik dan grafik untuk Menu Dashboard
+ *     summary: Mendapatkan data statistik lengkap dashboard berdasarkan tanggal kalender real-time
  *     description: |
- *       Menghitung metrik produksi dari tabel product_harian (total cetak, total masak,
- *       total pendapatan, rata-rata harian), tren 7 hari terakhir, dan data estimasi AI.
+ *       Endpoint gabungan (all-in-one) untuk seluruh data metrik dashboard:
+ *       1. Cetakan Global: Akumulasi seluruh cetakan, masak, dan pendapatan sepanjang masa.
+ *       2. Harian: Data riil pada tanggal hari ini (WIB).
+ *       3. Mingguan: Data riil 7 hari kalender terakhir sampai hari ini.
+ *       4. Bulanan: Data riil bulan kalender berjalan saat ini.
+ *       5. Data Terakhir Masuk: Referensi data transaksi terakhir di sistem.
+ *       6. Pesanan: Rincian transaksi global, harian, dan mingguan.
+ *       7. Grafik Analitik:
+ *          - Harian: 7 hari terakhir (per hari mundur dari hari ini)
+ *          - Mingguan: 7 minggu terakhir (per minggu mundur dari minggu ini)
+ *          - Bulanan: 7 bulan terakhir (per bulan mundur dari bulan ini)
+ *       8. Ringkasan & Grafik Tren: Kompatibilitas dengan antarmuka frontend yang ada.
+ *       
+ *       Catatan: Tersedia juga endpoint modular terpisah:
+ *       - `/api/dashboard/global`
+ *       - `/api/dashboard/harian`
+ *       - `/api/dashboard/mingguan`
+ *       - `/api/dashboard/bulanan`
+ *       - `/api/dashboard/grafik?mode=harian|mingguan|bulanan`
  *     tags:
  *       - Dashboard
  *     parameters:
- *       - in: header
- *         name: x-api-key
+ *       - in: query
+ *         name: mode
  *         required: false
  *         schema:
  *           type: string
- *         description: Kunci rahasia API aplikasi sesudah login
+ *           enum: [harian, mingguan, bulanan]
+ *           default: harian
+ *         description: Mode tampilan grafik (harian = 7 hari terakhir, mingguan = 7 minggu terakhir, bulanan = 7 bulan terakhir)
  *     responses:
  *       200:
- *         description: Berhasil mengambil data statistik dashboard
+ *         description: Berhasil memuat data statistik dashboard lengkap
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: success
+ *                 message:
+ *                   type: string
+ *                   example: Data statistik dashboard berhasil dimuat dari database berdasarkan tanggal kalender
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     tanggal_hari_ini_sistem:
+ *                       type: string
+ *                       example: "2026-10-28"
+ *                     cetakan_global:
+ *                       type: object
+ *                       properties:
+ *                         total_cetak:
+ *                           type: integer
+ *                           example: 125
+ *                         total_masak:
+ *                           type: integer
+ *                           example: 45
+ *                         total_pendapatan:
+ *                           type: integer
+ *                           example: 625000
+ *                         total_pendapatan_rupiah:
+ *                           type: string
+ *                           example: "Rp 625.000"
+ *                         rata_rata_cetak_harian:
+ *                           type: integer
+ *                           example: 42
+ *                         harga_cetak_aktif:
+ *                           type: integer
+ *                           example: 5000
+ *                         total_hari_produksi:
+ *                           type: integer
+ *                           example: 3
+ *                     harian:
+ *                       type: object
+ *                       properties:
+ *                         tanggal:
+ *                           type: string
+ *                           example: "2026-10-28"
+ *                         tanggal_wib:
+ *                           type: string
+ *                           example: "Rabu, 28 Oktober 2026"
+ *                         jumlah_cetak:
+ *                           type: integer
+ *                           example: 0
+ *                         jumlah_masak:
+ *                           type: integer
+ *                           example: 0
+ *                         total_harga:
+ *                           type: integer
+ *                           example: 0
+ *                         total_harga_rupiah:
+ *                           type: string
+ *                           example: "Rp 0"
+ *                         total_pelanggan:
+ *                           type: integer
+ *                           example: 0
+ *                         pesanan_pelanggan:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                     mingguan:
+ *                       type: object
+ *                       properties:
+ *                         periode:
+ *                           type: string
+ *                           example: "22 Okt - 28 Okt"
+ *                         tanggal_awal:
+ *                           type: string
+ *                           example: "2026-10-22"
+ *                         tanggal_akhir:
+ *                           type: string
+ *                           example: "2026-10-28"
+ *                         total_cetak:
+ *                           type: integer
+ *                           example: 125
+ *                         total_masak:
+ *                           type: integer
+ *                           example: 45
+ *                         total_pendapatan:
+ *                           type: integer
+ *                           example: 625000
+ *                         total_pendapatan_rupiah:
+ *                           type: string
+ *                           example: "Rp 625.000"
+ *                         total_transaksi_pelanggan:
+ *                           type: integer
+ *                           example: 12
+ *                     bulanan:
+ *                       type: object
+ *                       properties:
+ *                         periode:
+ *                           type: string
+ *                           example: "2026-10"
+ *                         nama_bulan:
+ *                           type: string
+ *                           example: "Oktober 2026"
+ *                         total_cetak:
+ *                           type: integer
+ *                           example: 125
+ *                         total_masak:
+ *                           type: integer
+ *                           example: 45
+ *                         total_pendapatan:
+ *                           type: integer
+ *                           example: 625000
+ *                         total_pendapatan_rupiah:
+ *                           type: string
+ *                           example: "Rp 625.000"
+ *                         total_transaksi_pelanggan:
+ *                           type: integer
+ *                           example: 12
+ *                     data_terakhir_masuk:
+ *                       type: object
+ *                       properties:
+ *                         tanggal:
+ *                           type: string
+ *                           example: "2026-10-27"
+ *                         tanggal_wib:
+ *                           type: string
+ *                           example: "Selasa, 27 Oktober 2026"
+ *                         jumlah_cetak:
+ *                           type: integer
+ *                           example: 50
+ *                         jumlah_masak:
+ *                           type: integer
+ *                           example: 20
+ *                         total_harga:
+ *                           type: integer
+ *                           example: 250000
+ *                         total_harga_rupiah:
+ *                           type: string
+ *                           example: "Rp 250.000"
+ *                     pesanan:
+ *                       type: object
+ *                       properties:
+ *                         global:
+ *                           type: object
+ *                         harian:
+ *                           type: object
+ *                         mingguan:
+ *                           type: object
+ *                     grafik:
+ *                       type: object
+ *                       properties:
+ *                         mode_terpilih:
+ *                           type: string
+ *                           example: "harian"
+ *                         data:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                         harian:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                         mingguan:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                         bulanan:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                     ringkasan:
+ *                       type: object
+ *                     grafik_tren_produksi:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                     is_mock_data:
+ *                       type: boolean
+ *                       example: false
  *       401:
- *         description: Belum login atau API Key tidak valid
+ *         description: Akses ditolak. Sesi login tidak valid.
  *       500:
- *         description: Terjadi kesalahan server
+ *         description: Terjadi kesalahan internal server saat memuat dashboard.
  */
 export async function GET(request: Request) {
-  // ── 1. Verifikasi Keamanan Ganda: Sesi Login httpOnly + Kunci API ───────────
-  const { error: authError } = verifyDualAuth(request);
-  if (authError) return authError;
-
   try {
-    // ── 2. Ambil 7 data produksi terakhir dari tabel product_harian ───────────
-    const { data: listProduksi, error: prodError } = await supabase
-      .from('product_harian')
-      .select('id, created_at, jumlah_cetak, jumlah_masak, jumlah_pendapatan')
-      .order('created_at', { ascending: false })
-      .limit(7);
+    const { error: authError } = verifyDualAuth(request);
+    if (authError) return authError;
 
-    // ── 3. Ambil total seluruh produksi sepanjang masa ───────────────────────
-    const { data: allProduksi } = await supabase
-      .from('product_harian')
-      .select('jumlah_cetak, jumlah_masak, jumlah_pendapatan');
+    const { searchParams } = new URL(request.url);
+    const mode = searchParams.get('mode') || 'harian';
 
-    // ── 4. Ambil harga aktif terkini ─────────────────────────────────────────
-    const { data: hargaData } = await supabase
-      .from('harga_cetak')
-      .select('harga')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const formatRupiah = (val: number) =>
-      new Intl.NumberFormat('id-ID', {
-        style: 'currency',
-        currency: 'IDR',
-        minimumFractionDigits: 0,
-      }).format(val || 0);
-
-    // Fallback data simulasi jika tabel di database belum memiliki catatan
-    const fallbackTren = [
-      { tanggal: '2026-10-11', jumlah_masak: 10, jumlah_cetak: 105, jumlah_pendapatan: 210000 },
-      { tanggal: '2026-10-12', jumlah_masak: 12, jumlah_cetak: 125, jumlah_pendapatan: 250000 },
-      { tanggal: '2026-10-13', jumlah_masak: 11, jumlah_cetak: 118, jumlah_pendapatan: 236000 },
-      { tanggal: '2026-10-14', jumlah_masak: 13, jumlah_cetak: 132, jumlah_pendapatan: 264000 },
-      { tanggal: '2026-10-15', jumlah_masak: 12, jumlah_cetak: 120, jumlah_pendapatan: 240000 },
-      { tanggal: '2026-10-16', jumlah_masak: 14, jumlah_cetak: 145, jumlah_pendapatan: 290000 },
-      { tanggal: '2026-10-17', jumlah_masak: 13, jumlah_cetak: 130, jumlah_pendapatan: 260000 },
-    ];
-
-    const hasRealData = Array.isArray(listProduksi) && listProduksi.length > 0;
-
-    // Susun data tren (di-reverse agar urutan tanggal dari lampau ke terbaru untuk chart)
-    const trenData = hasRealData
-      ? listProduksi
-          .slice()
-          .reverse()
-          .map((row) => ({
-            id: row.id,
-            tanggal: formatToWibDate(row.created_at),
-            jumlah_masak: Number(row.jumlah_masak) || 0,
-            jumlah_cetak: Number(row.jumlah_cetak) || 0,
-            jumlah_pendapatan: Number(row.jumlah_pendapatan) || 0,
-            jumlah_pendapatan_rupiah: formatRupiah(Number(row.jumlah_pendapatan) || 0),
-          }))
-      : fallbackTren;
-
-    // Perhitungan agregat
-    const basisData = hasRealData ? (allProduksi || listProduksi) : fallbackTren;
-    const totalCetak = basisData.reduce((acc, curr) => acc + (Number(curr.jumlah_cetak) || 0), 0);
-    const totalMasak = basisData.reduce((acc, curr) => acc + (Number(curr.jumlah_masak) || 0), 0);
-    const totalPendapatan = basisData.reduce((acc, curr) => acc + (Number(curr.jumlah_pendapatan) || 0), 0);
-    const rataRataCetak = Math.round(totalCetak / (basisData.length || 1));
+    const metrics = await getDashboardMetrics(mode);
 
     return NextResponse.json({
       status: 'success',
-      message: hasRealData
-        ? 'Data statistik dashboard berhasil dimuat dari database'
-        : 'Database belum memiliki riwayat produksi. Menampilkan data pratinjau simulasi.',
+      message: 'Data statistik dashboard berhasil dimuat dari database berdasarkan tanggal kalender',
       data: {
-        is_mock_data: !hasRealData,
-        ringkasan: {
-          total_cetak: totalCetak,
-          total_masak: totalMasak,
-          total_pendapatan: totalPendapatan,
-          total_pendapatan_rupiah: formatRupiah(totalPendapatan),
-          rata_rata_cetak_harian: rataRataCetak,
-          harga_cetak_aktif: hargaData ? Number(hargaData.harga) : 2000,
-          estimasi_prediksi_minggu_depan: 875,
-          akurasi_model_mape: '5.12%',
-          status_pabrik: 'Operasional Optimal',
-        },
-        grafik_tren_produksi: trenData,
-        prediksi_mingguan: {
-          periode_mulai: '2026-10-19',
-          periode_selesai: '2026-10-25',
-          estimasi_total_cetak: 875,
-          model: 'Random Forest Time-Series',
-        },
+        tanggal_hari_ini_sistem: metrics.todayWib,
+        cetakan_global: metrics.cetakan_global,
+        harian: metrics.harian,
+        mingguan: metrics.mingguan,
+        bulanan: metrics.bulanan,
+        data_terakhir_masuk: metrics.data_terakhir_masuk,
+        pesanan: metrics.pesanan,
+        grafik: metrics.grafik,
+        ringkasan: metrics.ringkasan,
+        grafik_tren_produksi: metrics.grafik_tren_produksi,
+        is_mock_data: metrics.is_mock_data,
       },
     });
   } catch (error) {
