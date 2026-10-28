@@ -4,15 +4,24 @@
 Inference Script untuk Model Random Forest Produksi Tahu
 Model: best_rf_model.joblib
 Fitur (16 kolom sesuai RandomForest_Tuning.ipynb):
-- masak_1, cetak_1 (Hari ke-1 / H-7)
-- masak_2, cetak_2 (Hari ke-2 / H-6)
-- masak_3, cetak_3 (Hari ke-3 / H-5)
-- masak_4, cetak_4 (Hari ke-4 / H-4)
-- masak_5, cetak_5 (Hari ke-5 / H-3)
-- masak_6, cetak_6 (Hari ke-6 / H-2)
-- masak_7, cetak_7 (Hari ke-7 / H-1)
+- masak_1, cetak_1 (Hari ke-1)
+- masak_2, cetak_2 (Hari ke-2)
+- masak_3, cetak_3 (Hari ke-3)
+- masak_4, cetak_4 (Hari ke-4)
+- masak_5, cetak_5 (Hari ke-5)
+- masak_6, cetak_6 (Hari ke-6)
+- masak_7, cetak_7 (Hari ke-7)
 - minggu_ke: Minggu ke dalam kalender ISO (1-52)
 - bulan: Bulan dalam kalender (1-12)
+
+Logika Penentuan 7 Hari:
+1. Jika parameter `tanggal` dikirim (contoh: "2026-10-28"):
+   7 hari input dihitung mundur 7 hari berurutan sampai tanggal tersebut (H-6 s/d H-0).
+   Periode prediksi dimulai keesokan harinya (H+1).
+2. Jika parameter `periode_mulai` dikirim (contoh: "2026-11-02"):
+   7 hari input dihitung 7 hari sebelum periode mulai (H-7 s/d H-1).
+3. Jika tidak ada tanggal yang dikirim:
+   Default langsung menggunakan tanggal hari ini (real-time date).
 """
 
 import sys
@@ -43,30 +52,36 @@ def resolve_model_path():
             return p
     raise FileNotFoundError(f"Model best_rf_model.joblib tidak ditemukan di lokasi: {candidates}")
 
-def build_features_from_daily_records(records, target_date_str=None, dummy_masak=DEFAULT_DUMMY_MASAK, dummy_cetak=DEFAULT_DUMMY_CETAK):
+def build_features_from_daily_records(records, anchor_date_str=None, periode_mulai_str=None, dummy_masak=DEFAULT_DUMMY_MASAK, dummy_cetak=DEFAULT_DUMMY_CETAK):
     """
     Menyusun 16 fitur dari array data harian (database + dummy fallback).
-    Jika data dari database kurang dari 7 hari atau ada hari yang kosong/0,
-    akan dilengkapi dengan nilai data dummy secara mulus.
+    Secara default mengambil 7 hari terakhir berdasarkan tanggal yang di-input.
     """
-    # 1. Tentukan tanggal target prediksi (default: Senin minggu berikutnya)
-    if target_date_str:
+    # 1. Tentukan tanggal acuan 7 hari dan tanggal awal prediksi
+    if periode_mulai_str:
         try:
-            target_dt = datetime.strptime(target_date_str, '%Y-%m-%d')
+            target_dt = datetime.strptime(periode_mulai_str[:10], '%Y-%m-%d')
         except Exception:
             target_dt = datetime.now() + timedelta(days=1)
+        # 7 hari adalah H-7 s/d H-1 sebelum target_dt
+        seven_days = [target_dt - timedelta(days=7 - i) for i in range(7)]
+    elif anchor_date_str:
+        try:
+            anchor_dt = datetime.strptime(anchor_date_str[:10], '%Y-%m-%d')
+        except Exception:
+            anchor_dt = datetime.now()
+        # 7 hari adalah anchor_dt mundur 6 hari sampai anchor_dt (H-6 s/d H-0)
+        seven_days = [anchor_dt - timedelta(days=6 - i) for i in range(7)]
+        target_dt = anchor_dt + timedelta(days=1)
     else:
-        # Default: 1 hari setelah hari ini
-        target_dt = datetime.now() + timedelta(days=1)
+        # Default: hari ini
+        anchor_dt = datetime.now()
+        seven_days = [anchor_dt - timedelta(days=6 - i) for i in range(7)]
+        target_dt = anchor_dt + timedelta(days=1)
 
     # Minggu ke dan Bulan target (sesuai dt.isocalendar().week dan dt.month di notebook)
     minggu_ke = int(target_dt.isocalendar()[1])
     bulan = int(target_dt.month)
-
-    # 2. Susun 7 hari kalender (H-7 s/d H-1 sebelum target_dt)
-    fitur_dict = {}
-    riil_count = 0
-    dummy_count = 0
 
     # Peta dari input records: tanggal -> {masak, cetak}
     records_map = {}
@@ -75,30 +90,32 @@ def build_features_from_daily_records(records, target_date_str=None, dummy_masak
             if isinstance(r, dict):
                 tgl = r.get('tanggal') or r.get('date') or r.get('created_at')
                 if tgl:
-                    # Ambil hanya YYYY-MM-DD
                     tgl_clean = str(tgl)[:10]
                     m = float(r.get('jumlah_masak') or r.get('masak') or 0)
                     c = float(r.get('jumlah_cetak') or r.get('cetak') or 0)
                     records_map[tgl_clean] = {'masak': m, 'cetak': c}
 
-    for i in range(1, 8):
-        # Hari ke-1 adalah H-7, Hari ke-7 adalah H-1
-        day_offset = 8 - i
-        d = target_dt - timedelta(days=day_offset)
-        d_key = d.strftime('%Y-%m-%d')
+    fitur_dict = {}
+    rincian_7_hari_input = []
+    riil_count = 0
+    dummy_count = 0
 
+    for i, d in enumerate(seven_days, start=1):
+        d_key = d.strftime('%Y-%m-%d')
         m_val = None
         c_val = None
+        sumber = 'dummy_baseline'
 
         if d_key in records_map:
             item = records_map[d_key]
-            # Jika ada nilai riil positif (> 0), gunakan data database
+            # Jika ada nilai riil positif (> 0) di database
             if item['cetak'] > 0:
                 c_val = item['cetak']
                 m_val = item['masak'] if item['masak'] > 0 else dummy_masak
+                sumber = 'database_product_harian'
                 riil_count += 1
 
-        # Jika tidak ada di database, gunakan data dummy baseline
+        # Jika kosong / belum diinput di database, pakai baseline dummy
         if c_val is None:
             c_val = dummy_cetak
             m_val = dummy_masak
@@ -107,10 +124,19 @@ def build_features_from_daily_records(records, target_date_str=None, dummy_masak
         fitur_dict[f'masak_{i}'] = float(m_val)
         fitur_dict[f'cetak_{i}'] = float(c_val)
 
+        rincian_7_hari_input.append({
+            'urutan_hari': i,
+            'tanggal': d_key,
+            'hari': NAMA_HARI[d.weekday()],
+            'jumlah_masak': float(m_val),
+            'jumlah_cetak': float(c_val),
+            'sumber': sumber
+        })
+
     fitur_dict['minggu_ke'] = int(minggu_ke)
     fitur_dict['bulan'] = int(bulan)
 
-    return fitur_dict, target_dt, riil_count, dummy_count
+    return fitur_dict, target_dt, seven_days, rincian_7_hari_input, riil_count, dummy_count
 
 def predict_production(input_payload):
     """Fungsi utama menjalankan prediksi dengan best_rf_model.joblib"""
@@ -118,13 +144,14 @@ def predict_production(input_payload):
     model = joblib.load(model_path)
 
     records = input_payload.get('data_7_hari') or input_payload.get('records') or []
-    target_date_str = input_payload.get('periode_mulai') or input_payload.get('target_date')
+    anchor_date_str = input_payload.get('tanggal') or input_payload.get('tanggal_acuan')
+    periode_mulai_str = input_payload.get('periode_mulai') or input_payload.get('target_date')
 
     dummy_cfg = input_payload.get('fallback_dummy') or {}
     dummy_masak = float(dummy_cfg.get('masak') or DEFAULT_DUMMY_MASAK)
     dummy_cetak = float(dummy_cfg.get('cetak') or DEFAULT_DUMMY_CETAK)
 
-    # Jika payload langsung mengirimkan 16 fitur lengkap
+    # Jika payload mengirimkan 16 fitur eksplisit
     if 'masak_1' in input_payload and 'cetak_7' in input_payload:
         feature_order = [
             'masak_1', 'cetak_1', 'masak_2', 'cetak_2', 'masak_3', 'cetak_3',
@@ -134,11 +161,12 @@ def predict_production(input_payload):
         fitur_dict = {col: [float(input_payload[col])] for col in feature_order}
         X = pd.DataFrame(fitur_dict)
         target_dt = datetime.now() + timedelta(days=1)
+        rincian_7_hari_input = []
         riil_count = 7
         dummy_count = 0
     else:
-        fitur_dict, target_dt, riil_count, dummy_count = build_features_from_daily_records(
-            records, target_date_str, dummy_masak, dummy_cetak
+        fitur_dict, target_dt, seven_days, rincian_7_hari_input, riil_count, dummy_count = build_features_from_daily_records(
+            records, anchor_date_str, periode_mulai_str, dummy_masak, dummy_cetak
         )
         feature_order = [
             'masak_1', 'cetak_1', 'masak_2', 'cetak_2', 'masak_3', 'cetak_3',
@@ -152,9 +180,8 @@ def predict_production(input_payload):
     prediction_raw = float(model.predict(X)[0])
     total_cetak_prediksi = int(round(prediction_raw))
 
-    # Tentukan rentang 7 hari ke depan mulai target_dt
+    # Tentukan rincian 7 hari prediksi (Senin s/d Minggu)
     detail_harian = []
-    # Pola bobot harian (Senin - Minggu): akhir pekan biasanya mengalami peningkatan permintaan
     bobot_hari = [0.135, 0.138, 0.142, 0.140, 0.145, 0.155, 0.145]
     total_bobot = sum(bobot_hari)
 
@@ -169,12 +196,15 @@ def predict_production(input_payload):
             'estimasi_cetak': estimasi_hari
         })
 
-    # Selaraskan total agar persis sama dengan total_cetak_prediksi
+    # Selaraskan selisih pembulatan
     selisih = total_cetak_prediksi - sum(d['estimasi_cetak'] for d in detail_harian)
     if selisih != 0 and detail_harian:
         detail_harian[-1]['estimasi_cetak'] += selisih
 
     periode_selesai = (target_dt + timedelta(days=6)).strftime('%Y-%m-%d')
+
+    tgl_awal_input = rincian_7_hari_input[0]['tanggal'] if rincian_7_hari_input else ''
+    tgl_akhir_input = rincian_7_hari_input[-1]['tanggal'] if rincian_7_hari_input else ''
 
     return {
         'status': 'success',
@@ -185,6 +215,11 @@ def predict_production(input_payload):
         'minggu_ke': int(fitur_dict['minggu_ke'] if isinstance(fitur_dict['minggu_ke'], (int, float)) else fitur_dict['minggu_ke'][0]),
         'bulan': int(fitur_dict['bulan'] if isinstance(fitur_dict['bulan'], (int, float)) else fitur_dict['bulan'][0]),
         'detail_harian': detail_harian,
+        'basis_7_hari_input': {
+            'tanggal_acuan_input': anchor_date_str or target_dt.strftime('%Y-%m-%d'),
+            'rentang_7_hari': f"{tgl_awal_input} s/d {tgl_akhir_input}",
+            'rincian_per_hari': rincian_7_hari_input
+        },
         'metrik_evaluasi': {
             'mae': 6.42,
             'r2_score': 0.7712,
@@ -213,7 +248,6 @@ def main():
                 print(json.dumps({'status': 'error', 'message': f'Gagal parse arg JSON: {str(e)}'}))
                 sys.exit(1)
     else:
-        # Baca dari stdin jika ada input pipe
         try:
             if not sys.stdin.isatty():
                 stdin_text = sys.stdin.read().strip()

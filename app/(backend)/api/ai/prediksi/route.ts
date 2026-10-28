@@ -7,21 +7,42 @@ import { calculateAiPrediction } from '@/lib/ai-service';
  * @swagger
  * /api/ai/prediksi:
  *   get:
- *     summary: Mengambil hasil prediksi mingguan terbaru dan riwayat peramalan AI (Random Forest)
+ *     summary: Mengambil hasil peramalan AI (Random Forest) berdasarkan data 7 hari terakhir
  *     description: |
- *       Mengembalikan hasil peramalan kebutuhan produksi cetakan tahu 1 minggu ke depan.
- *       Model AI yang digunakan adalah Random Forest Regressor (`best_rf_model.joblib`),
- *       dilatih dengan 16 fitur (masak_1 s/d 7, cetak_1 s/d 7, minggu_ke, bulan)
- *       dari data riil database `product_harian` + pelengkap data dummy baseline.
+ *       Mengembalikan estimasi kebutuhan cetakan tahu untuk 1 minggu ke depan menggunakan model Random Forest (`best_rf_model.joblib`).
+ *       
+ *       **Mekanisme Perhitungan:**
+ *       1. Secara default, sistem mengambil data produksi **7 hari terakhir** berdasarkan tanggal yang di-input (parameter `tanggal`).
+ *       2. Jika parameter `tanggal` tidak diisi, sistem otomatis menggunakan **tanggal hari ini (real-time WIB)** sebagai default.
+ *       3. Data 7 hari tersebut diambil dari tabel database `product_harian`.
+ *       4. Apabila ada hari yang belum memiliki data di database (misal baru mulai input atau hari libur), sistem secara otomatis melengkapinya dengan **data baseline dummy** (`masak: 32`, `cetak: 190`).
+ *       5. Sebanyak 16 fitur (`masak_1..7`, `cetak_1..7`, `minggu_ke`, `bulan`) dieksekusi oleh model AI untuk menghasilkan estimasi mingguan dan rincian per hari (Senin s/d Minggu).
  *     tags:
  *       - AI Prediksi
  *     parameters:
  *       - in: query
+ *         name: tanggal
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2026-10-28"
+ *         description: Tanggal acuan untuk menarik 7 hari terakhir dari database. Default = hari ini waktu WIB.
+ *       - in: query
+ *         name: periode_mulai
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: "2026-10-29"
+ *         description: Tanggal mulai periode yang diprediksi. Default = keesokan hari setelah tanggal acuan.
+ *       - in: query
  *         name: limit
+ *         required: false
  *         schema:
  *           type: integer
  *           default: 5
- *         description: Jumlah riwayat prediksi yang diambil
+ *         description: Batas jumlah riwayat prediksi yang diambil dari database jika ada.
  *     responses:
  *       200:
  *         description: Berhasil memuat data prediksi AI
@@ -41,22 +62,58 @@ import { calculateAiPrediction } from '@/lib/ai-service';
  *                   properties:
  *                     prediksi_aktif:
  *                       type: object
- *                     riwayat_prediksi:
- *                       type: array
- *                       items:
- *                         type: object
+ *                       properties:
+ *                         total_cetak_prediksi:
+ *                           type: integer
+ *                           example: 1246
+ *                         periode_mulai:
+ *                           type: string
+ *                           example: "2026-10-29"
+ *                         periode_selesai:
+ *                           type: string
+ *                           example: "2026-11-04"
+ *                         minggu_ke:
+ *                           type: integer
+ *                           example: 44
+ *                         bulan:
+ *                           type: integer
+ *                           example: 10
+ *                         detail_harian:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                         basis_7_hari_input:
+ *                           type: object
+ *                           properties:
+ *                             tanggal_acuan_input:
+ *                               type: string
+ *                               example: "2026-10-28"
+ *                             rentang_7_hari:
+ *                               type: string
+ *                               example: "2026-10-22 s/d 2026-10-28"
+ *                             rincian_per_hari:
+ *                               type: array
+ *                               items:
+ *                                 type: object
+ *                         sumber_fitur:
+ *                           type: object
+ *                           properties:
+ *                             jumlah_hari_dari_database:
+ *                               type: integer
+ *                               example: 1
+ *                             jumlah_hari_dari_dummy:
+ *                               type: integer
+ *                               example: 6
  *       401:
  *         description: Akses ditolak. Sesi login tidak valid.
  *       500:
  *         description: Kesalahan server
  *   post:
- *     summary: Menjalankan peramalan (forecasting) Random Forest dengan data 7 hari terakhir dari database
+ *     summary: Menjalankan peramalan baru (Forecasting) dengan Random Forest
  *     description: |
- *       Memicu eksekusi model Random Forest (`best_rf_model.joblib`) secara real-time:
- *       1. Mengambil data produksi 7 hari terakhir dari tabel `product_harian`.
- *       2. Melengkapi hari kosong / data yang kurang dengan baseline data dummy.
- *       3. Menyusun 16 fitur input sesuai notebook `RandomForest_Tuning.ipynb`.
- *       4. Menghasilkan estimasi cetakan total mingguan dan rincian hari demi hari (Senin - Minggu).
+ *       Memicu eksekusi model Random Forest (`best_rf_model.joblib`) secara live.
+ *       Secara default langsung menarik **7 hari terakhir** berdasarkan tanggal yang dikirim di request body.
+ *       Jika field `tanggal` dikosongkan, default mengambil **7 hari terakhir dari hari ini**.
  *     tags:
  *       - AI Prediksi
  *     requestBody:
@@ -66,25 +123,30 @@ import { calculateAiPrediction } from '@/lib/ai-service';
  *           schema:
  *             type: object
  *             properties:
+ *               tanggal:
+ *                 type: string
+ *                 format: date
+ *                 description: Tanggal acuan 7 hari terakhir (YYYY-MM-DD). Default = hari ini WIB jika tidak diisi.
+ *                 example: "2026-10-28"
  *               periode_mulai:
  *                 type: string
  *                 format: date
- *                 description: Tanggal awal periode prediksi (YYYY-MM-DD). Default: Senin minggu depan.
- *                 example: "2026-11-02"
+ *                 description: Tanggal mulai peramalan 7 hari ke depan (YYYY-MM-DD). Default = keesokan hari setelah tanggal acuan.
+ *                 example: "2026-10-29"
  *               id_admin:
  *                 type: integer
- *                 description: ID Admin yang memicu proses prediksi
+ *                 description: ID Admin yang memicu kalkulasi
  *                 example: 2
  *     responses:
  *       200:
- *         description: Prediksi berhasil dihitung oleh model Random Forest
+ *         description: Peramalan berhasil dihitung oleh model Random Forest
  *       401:
  *         description: Akses ditolak. Sesi login tidak valid.
  *       500:
  *         description: Gagal menjalankan model AI
  */
 
-// 1. GET: Ambil Prediksi Terkini & Riwayat
+// 1. GET: Ambil Prediksi Terkini & Riwayat (dengan opsi kalkulasi live berdasarkan tanggal)
 export async function GET(request: Request) {
   const { error: authError } = verifyDualAuth(request);
   if (authError) return authError;
@@ -92,15 +154,33 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '5', 10);
+    const tanggalParam = searchParams.get('tanggal') || undefined;
+    const periodeMulaiParam = searchParams.get('periode_mulai') || undefined;
 
-    // Ambil prediksi dari Supabase (jika tabel prediksi tersedia)
+    // Jika user meminta tanggal spesifik, langsung hitung prediksi berdasarkan tanggal tersebut
+    if (tanggalParam || periodeMulaiParam) {
+      const customPred = await calculateAiPrediction({
+        tanggal: tanggalParam,
+        periode_mulai: periodeMulaiParam,
+      });
+
+      return NextResponse.json({
+        status: 'success',
+        message: 'Data prediksi AI dihitung berdasarkan tanggal acuan yang di-request',
+        data: {
+          prediksi_aktif: customPred,
+          riwayat_prediksi: [customPred],
+        },
+      });
+    }
+
+    // Ambil prediksi dari Supabase (jika ada data tersimpan sebelumnya)
     const { data: listPrediksi } = await supabase
       .from('prediksi')
       .select('*')
       .order('periode_mulai', { ascending: false })
       .limit(limit);
 
-    // Jika di database sudah ada hasil simpanan sebelumnya
     if (listPrediksi && listPrediksi.length > 0) {
       return NextResponse.json({
         status: 'success',
@@ -112,12 +192,12 @@ export async function GET(request: Request) {
       });
     }
 
-    // Jika belum ada di database, hitung langsung secara on-the-fly via Random Forest
+    // Jika database belum memiliki riwayat, jalankan model live dengan default hari ini (WIB)
     const livePrediction = await calculateAiPrediction();
 
     return NextResponse.json({
       status: 'success',
-      message: 'Data prediksi AI dihitung langsung oleh model Random Forest',
+      message: 'Data prediksi AI dihitung langsung oleh model Random Forest (default 7 hari terakhir dari hari ini)',
       data: {
         prediksi_aktif: livePrediction,
         riwayat_prediksi: [livePrediction],
@@ -143,13 +223,21 @@ export async function POST(request: Request) {
       body = await request.json();
     } catch {}
 
-    const { periode_mulai: customPeriodeMulai, id_admin } = body as {
+    const {
+      tanggal: customTanggal,
+      periode_mulai: customPeriodeMulai,
+      id_admin,
+    } = body as {
+      tanggal?: string;
       periode_mulai?: string;
       id_admin?: number;
     };
 
-    // 1. Jalankan prediksi dengan data 7 hari database + dummy fallback
-    const result = await calculateAiPrediction(customPeriodeMulai);
+    // 1. Jalankan prediksi dengan 7 hari terakhir berdasarkan tanggal input (atau default hari ini)
+    const result = await calculateAiPrediction({
+      tanggal: customTanggal,
+      periode_mulai: customPeriodeMulai,
+    });
 
     // 2. Upayakan simpan hasil ke tabel `prediksi` di Supabase (jika tabel ada)
     let savedRow = null;
@@ -177,7 +265,7 @@ export async function POST(request: Request) {
         savedRow = savedData;
       }
     } catch {
-      // Tidak masalah jika tabel prediksi belum dibuat di Supabase
+      // Abaikan jika tabel prediksi belum dibuat di Supabase
     }
 
     return NextResponse.json({

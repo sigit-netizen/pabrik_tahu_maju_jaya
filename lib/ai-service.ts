@@ -9,6 +9,15 @@ export interface DetailHarianPrediksi {
   estimasi_cetak: number;
 }
 
+export interface Basis7HariItem {
+  urutan_hari: number;
+  tanggal: string;
+  hari: string;
+  jumlah_masak: number;
+  jumlah_cetak: number;
+  sumber: string;
+}
+
 export interface AiPredictionResult {
   status: string;
   model_version: string;
@@ -18,6 +27,11 @@ export interface AiPredictionResult {
   minggu_ke: number;
   bulan: number;
   detail_harian: DetailHarianPrediksi[];
+  basis_7_hari_input: {
+    tanggal_acuan_input: string;
+    rentang_7_hari: string;
+    rincian_per_hari: Basis7HariItem[];
+  };
   metrik_evaluasi: {
     mae: number;
     r2_score: number;
@@ -41,22 +55,29 @@ export const DEFAULT_DUMMY_DATA = {
 
 /**
  * Mengambil data produksi 7 hari kalender terakhir dari tabel `product_harian`
- * dan diagregasikan per tanggal WIB (YYYY-MM-DD).
+ * berdasarkan tanggal acuan yang di-input (default: hari ini WIB jika tidak diisi).
  */
-export async function get7HariProduksiDb(): Promise<Array<{ tanggal: string; jumlah_masak: number; jumlah_cetak: number }>> {
+export async function get7HariProduksiDb(
+  anchorDateStr?: string
+): Promise<Array<{ tanggal: string; jumlah_masak: number; jumlah_cetak: number }>> {
   try {
-    const todayWib = getWibTodayDate();
-    const [ay, am, ad] = todayWib.split('-').map(Number);
+    const targetDateStr = anchorDateStr ? anchorDateStr.slice(0, 10) : getWibTodayDate();
+    const [ay, am, ad] = targetDateStr.split('-').map(Number);
 
-    // Ambil rentang 14 hari terakhir untuk memastikan 7 hari kalender tercakup
+    // Ambil rentang 14 hari sebelum tanggal acuan untuk memastikan 7 hari kalender tercakup
     const startDate = new Date(Date.UTC(ay, am - 1, ad));
     startDate.setUTCDate(startDate.getUTCDate() - 14);
     const startIso = startDate.toISOString();
+
+    const endDate = new Date(Date.UTC(ay, am - 1, ad));
+    endDate.setUTCDate(endDate.getUTCDate() + 1); // Mencakup seluruh tanggal acuan
+    const endIso = endDate.toISOString();
 
     const { data, error } = await supabase
       .from('product_harian')
       .select('created_at, jumlah_cetak, jumlah_masak')
       .gte('created_at', startIso)
+      .lte('created_at', endIso)
       .order('created_at', { ascending: false });
 
     if (error || !data) {
@@ -96,14 +117,13 @@ export async function get7HariProduksiDb(): Promise<Array<{ tanggal: string; jum
  */
 export async function executePythonModel(payload: {
   data_7_hari: Array<{ tanggal: string; jumlah_masak: number; jumlah_cetak: number }>;
+  tanggal?: string;
   periode_mulai?: string;
   fallback_dummy?: { masak: number; cetak: number };
 }): Promise<AiPredictionResult> {
   return new Promise((resolve, reject) => {
-    // Cari lokasi script predict.py
     const scriptPath = path.resolve(process.cwd(), 'model', 'predict.py');
 
-    // Menjalankan python
     const py = spawn('python', [scriptPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
@@ -155,6 +175,7 @@ export async function executePythonModel(payload: {
  */
 function generateFallbackPrediction(
   dataDb: Array<{ tanggal: string; jumlah_masak: number; jumlah_cetak: number }>,
+  anchorDateStr: string,
   periodeMulaiStr: string
 ): AiPredictionResult {
   const dMulai = new Date(periodeMulaiStr);
@@ -162,7 +183,7 @@ function generateFallbackPrediction(
   const bulan = dMulai.getMonth() + 1;
 
   const namaHari = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
-  const baseAvg = 178; // Rata-rata per hari dari dataset training
+  const baseAvg = 178;
   const detailHarian: DetailHarianPrediksi[] = namaHari.map((hari, i) => {
     const cur = new Date(dMulai);
     cur.setDate(dMulai.getDate() + i);
@@ -188,6 +209,11 @@ function generateFallbackPrediction(
     minggu_ke: mingguKe,
     bulan: bulan,
     detail_harian: detailHarian,
+    basis_7_hari_input: {
+      tanggal_acuan_input: anchorDateStr,
+      rentang_7_hari: '7 hari sebelum periode prediksi',
+      rincian_per_hari: [],
+    },
     metrik_evaluasi: {
       mae: 6.42,
       r2_score: 0.7712,
@@ -204,33 +230,50 @@ function generateFallbackPrediction(
 
 /**
  * Menghasilkan prediksi AI lengkap:
- * 1. Ambil data 7 hari terakhir dari database `product_harian`
- * 2. Lengkapi hari yang kosong dengan data dummy baseline
- * 3. Eksekusi `best_rf_model.joblib` via Python inference
+ * 1. Menentukan tanggal acuan (berdasarkan input tanggal dari user atau default hari ini)
+ * 2. Mengambil data 7 hari terakhir dari database `product_harian` berdasarkan tanggal tersebut
+ * 3. Melengkapi hari yang kosong dengan data dummy baseline
+ * 4. Eksekusi `best_rf_model.joblib` via Python inference
  */
-export async function calculateAiPrediction(periodeMulaiInput?: string): Promise<AiPredictionResult> {
-  // Tentukan tanggal mulai periode prediksi (default: Senin minggu berikutnya)
-  let periodeMulai = periodeMulaiInput;
-  if (!periodeMulai) {
-    const today = new Date();
-    const nextMonday = new Date(today);
-    nextMonday.setDate(today.getDate() + ((1 + 7 - today.getDay()) % 7 || 7));
-    periodeMulai = nextMonday.toISOString().split('T')[0];
+export async function calculateAiPrediction(
+  options?: { tanggal?: string; periode_mulai?: string } | string
+): Promise<AiPredictionResult> {
+  let tanggalInput: string | undefined;
+  let periodeMulaiInput: string | undefined;
+
+  if (typeof options === 'string') {
+    periodeMulaiInput = options;
+  } else if (options && typeof options === 'object') {
+    tanggalInput = options.tanggal;
+    periodeMulaiInput = options.periode_mulai;
   }
 
-  // 1. Ambil data riil dari Supabase
-  const dataDb = await get7HariProduksiDb();
+  // Tanggal acuan default adalah hari ini waktu WIB jika user tidak menginput tanggal
+  const todayWib = getWibTodayDate();
+  const anchorDate = tanggalInput || todayWib;
 
-  // 2. Jalankan Python Inference
+  // 1. Ambil data riil dari Supabase berdasarkan tanggal acuan
+  const dataDb = await get7HariProduksiDb(anchorDate);
+
+  // 2. Tentukan periode mulai jika belum diisi
+  let targetPeriodeMulai = periodeMulaiInput;
+  if (!targetPeriodeMulai) {
+    const anchor = new Date(anchorDate);
+    anchor.setDate(anchor.getDate() + 1);
+    targetPeriodeMulai = anchor.toISOString().split('T')[0];
+  }
+
+  // 3. Jalankan Python Inference
   try {
     const result = await executePythonModel({
       data_7_hari: dataDb,
-      periode_mulai: periodeMulai,
+      tanggal: anchorDate,
+      periode_mulai: targetPeriodeMulai,
       fallback_dummy: DEFAULT_DUMMY_DATA,
     });
     return result;
   } catch (pyError) {
     console.warn('[AIService] Python inference gagal/tidak tersedia, beralih ke fallback cerdas:', pyError);
-    return generateFallbackPrediction(dataDb, periodeMulai);
+    return generateFallbackPrediction(dataDb, anchorDate, targetPeriodeMulai);
   }
 }
