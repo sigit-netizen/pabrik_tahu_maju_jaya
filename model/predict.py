@@ -124,7 +124,34 @@ def process_prediction(input_payload):
 
     # ── JALUR A: FORMAT KOLOM DATASET CSV LANGSUNG ────────────────────────────
     # Contoh: {"tanggal": "01-07/04/2025", "masak_1": 34, "cetak_1": 202, ...}
-    if 'masak_1' in input_payload and 'cetak_7' in input_payload:
+    masak_keys = [k for k in input_payload.keys() if str(k).startswith('masak_')]
+    cetak_keys = [k for k in input_payload.keys() if str(k).startswith('cetak_')]
+    has_dataset_cols = len(masak_keys) > 0 or len(cetak_keys) > 0
+
+    if has_dataset_cols:
+        extra_keys = [k for k in (masak_keys + cetak_keys) if str(k).split('_')[-1].isdigit() and int(str(k).split('_')[-1]) > 7]
+        if extra_keys:
+            raise ValueError(
+                f"Data yang dikirim melebihi 7 hari (ditemukan kolom: {', '.join(extra_keys)}). "
+                f"Model Random Forest hanya membutuhkan tepat 7 hari historis produksi (masak_1 s/d masak_7 dan cetak_1 s/d cetak_7)."
+            )
+
+        missing_keys = []
+        for i in range(1, 8):
+            if input_payload.get(f'masak_{i}') is None or input_payload.get(f'masak_{i}') == '':
+                missing_keys.append(f'masak_{i}')
+            if input_payload.get(f'cetak_{i}') is None or input_payload.get(f'cetak_{i}') == '':
+                missing_keys.append(f'cetak_{i}')
+
+        if missing_keys:
+            nums = [int(str(k).split('_')[-1]) for k in (masak_keys + cetak_keys) if str(k).split('_')[-1].isdigit()]
+            hari_terdeteksi = max(nums) if nums else 0
+            raise ValueError(
+                f"Data simulasi tidak lengkap / kurang dari 7 hari (hanya terdeteksi {hari_terdeteksi} hari). "
+                f"Model Random Forest membutuhkan tepat 7 hari historis produksi (masak_1..7 dan cetak_1..7). "
+                f"Kolom yang belum diisi: {', '.join(missing_keys)}."
+            )
+
         last_dt, minggu_ke, bulan = parse_date_like_notebook(input_payload.get('tanggal'))
         target_dt = last_dt + timedelta(days=1)
 

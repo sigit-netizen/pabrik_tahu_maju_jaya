@@ -359,8 +359,62 @@ export async function calculateAiPrediction(
 
     const fiturDict: Record<string, number> = {};
 
-    // ── JALUR A: FORMAT KOLOM DATASET LANGSUNG ───────────────────────────────
-    if ('masak_1' in options && 'cetak_7' in options) {
+    // 1. Deteksi apakah request mengirim kolom format dataset (masak_X atau cetak_X)
+    const masakKeys = Object.keys(options).filter((k) => /^masak_\d+$/.test(k));
+    const cetakKeys = Object.keys(options).filter((k) => /^cetak_\d+$/.test(k));
+    const hasDatasetColumns = masakKeys.length > 0 || cetakKeys.length > 0;
+
+    // 2. Deteksi apakah request mengirim array data_simulasi
+    const hasSimulasiArray = options.data_simulasi !== undefined && options.data_simulasi !== null;
+
+    // ── KONDISI 1: INPUT MENGGUNAKAN FORMAT KOLOM DATASET (masak_X / cetak_X) ─
+    if (hasDatasetColumns) {
+      // Periksa apakah ada kolom di atas hari ke-7 (lebih dari 7 hari)
+      const extraKeys = Object.keys(options).filter((k) => {
+        const match = k.match(/^(?:masak|cetak)_(\d+)$/);
+        return match && parseInt(match[1], 10) > 7;
+      });
+
+      if (extraKeys.length > 0) {
+        throw new AiValidationError(
+          `Data yang dikirim melebihi 7 hari (ditemukan kolom: ${extraKeys.join(', ')}). ` +
+          `Sesuai dataset pelatihan (DatasetPenjualanTahuv3.csv), model Random Forest hanya membutuhkan tepat 7 hari historis produksi (masak_1 s/d masak_7 dan cetak_1 s/d cetak_7).`,
+          {
+            kolom_berlebih: extraKeys,
+            jumlah_hari_maksimal: 7,
+          }
+        );
+      }
+
+      // Periksa apakah ada kolom yang hilang dari 7 hari (kurang dari 7 hari)
+      const missingKeys: string[] = [];
+      for (let i = 1; i <= 7; i++) {
+        if (options[`masak_${i}`] === undefined || options[`masak_${i}`] === null || options[`masak_${i}`] === '') {
+          missingKeys.push(`masak_${i}`);
+        }
+        if (options[`cetak_${i}`] === undefined || options[`cetak_${i}`] === null || options[`cetak_${i}`] === '') {
+          missingKeys.push(`cetak_${i}`);
+        }
+      }
+
+      if (missingKeys.length > 0) {
+        const allNums = masakKeys.concat(cetakKeys).map((k) => parseInt(k.replace(/\D/g, ''), 10));
+        const hariTerdeteksi = allNums.length > 0 ? Math.max(...allNums) : 0;
+
+        throw new AiValidationError(
+          `Data simulasi tidak lengkap / kurang dari 7 hari (hanya terdeteksi ${hariTerdeteksi} hari). ` +
+          `Sesuai dataset pelatihan (DatasetPenjualanTahuv3.csv), model Random Forest membutuhkan tepat 7 hari historis produksi (masak_1..7 dan cetak_1..7). ` +
+          `Kolom yang belum diisi: ${missingKeys.join(', ')}.`,
+          {
+            jumlah_hari_terdeteksi: hariTerdeteksi,
+            jumlah_hari_dibutuhkan: 7,
+            kolom_kurang: missingKeys,
+            saran: 'Lengkapi seluruh data 7 hari (masak_1..7 dan cetak_1..7), atau kirim body kosong {} untuk menggunakan data dummy 7 hari bawaan sistem.',
+          }
+        );
+      }
+
+      // Seluruh 14 kolom lengkap!
       const { date: lastDt, isoWeek, month } = parseDateLikeNotebook(
         typeof options.tanggal === 'string' ? options.tanggal : undefined
       );
@@ -393,9 +447,8 @@ export async function calculateAiPrediction(
       sumberDeskripsi = `Input Kolom Dataset Langsung (Tanggal Acuan: ${formatDateToIso(lastDt)})`;
     }
 
-    // ── JALUR B: MODE SIMULASI (DATA DUMMY OTOMATIS) ──────────────────────────
+    // ── KONDISI 2: MODE SIMULASI ───────────────────────────────────────────────
     else if (mode === 'simulasi') {
-      const rawRecords = options.data_simulasi;
       const anchorDateStr = options.tanggal;
       const periodeMulaiStr = options.periode_mulai;
 
@@ -411,14 +464,18 @@ export async function calculateAiPrediction(
         targetDt = now;
       }
 
-      if (rawRecords && rawRecords.length > 0) {
-        if (rawRecords.length !== 7) {
+      // Jika user mengirimkan array data_simulasi:
+      if (hasSimulasiArray) {
+        const rawRecords = options.data_simulasi;
+        if (!Array.isArray(rawRecords) || rawRecords.length !== 7) {
+          const count = Array.isArray(rawRecords) ? rawRecords.length : 0;
           throw new AiValidationError(
-            `Data simulasi kustom harus tepat 7 hari (diterima: ${rawRecords.length} hari). ` +
+            `Data simulasi kustom harus tepat 7 hari (diterima: ${count} hari). ` +
             `Sesuai dataset pelatihan, model Random Forest membutuhkan tepat 7 hari historis produksi.`,
             {
-              jumlah_hari_diterima: rawRecords.length,
+              jumlah_hari_diterima: count,
               jumlah_hari_dibutuhkan: 7,
+              saran: 'Kirim tepat 7 hari pada array data_simulasi, atau kirim body kosong {} untuk menggunakan data dummy 7 hari bawaan sistem.',
             }
           );
         }
@@ -445,7 +502,7 @@ export async function calculateAiPrediction(
           });
         }
       } else {
-        // Preset otomatis Row #0
+        // User mengirim body kosong {} atau hanya tanggal acuan / periode_mulai
         sumberDeskripsi = 'Data Dummy Bawaan Sistem (Row #0 DatasetPenjualanTahuv3.csv)';
         for (let i = 1; i <= 7; i++) {
           const preset = DEFAULT_PRESET_DUMMY_7_HARI[i - 1];
