@@ -263,7 +263,194 @@ function get7BulanTerakhirKalender(
  *         description: Mode tampilan grafik (harian = 7 hari terakhir, mingguan = 7 minggu terakhir, bulanan = 7 bulan terakhir)
  *     responses:
  *       200:
- *         description: Berhasil memuat data statistik dashboard
+ *         description: Berhasil memuat data statistik dashboard lengkap
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: success
+ *                 message:
+ *                   type: string
+ *                   example: Data statistik dashboard berhasil dimuat dari database berdasarkan tanggal kalender
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     tanggal_hari_ini_sistem:
+ *                       type: string
+ *                       example: "2026-10-28"
+ *                     cetakan_global:
+ *                       type: object
+ *                       properties:
+ *                         total_cetak:
+ *                           type: integer
+ *                           example: 125
+ *                         total_masak:
+ *                           type: integer
+ *                           example: 45
+ *                         total_pendapatan:
+ *                           type: integer
+ *                           example: 625000
+ *                         total_pendapatan_rupiah:
+ *                           type: string
+ *                           example: "Rp 625.000"
+ *                         rata_rata_cetak_harian:
+ *                           type: integer
+ *                           example: 63
+ *                         harga_cetak_aktif:
+ *                           type: integer
+ *                           example: 5000
+ *                         total_hari_produksi:
+ *                           type: integer
+ *                           example: 2
+ *                     harian:
+ *                       type: object
+ *                       properties:
+ *                         tanggal:
+ *                           type: string
+ *                           example: "2026-10-28"
+ *                         tanggal_wib:
+ *                           type: string
+ *                           example: "Rabu, 28 Oktober 2026"
+ *                         jumlah_cetak:
+ *                           type: integer
+ *                           example: 21
+ *                         jumlah_masak:
+ *                           type: integer
+ *                           example: 8
+ *                         total_harga:
+ *                           type: integer
+ *                           example: 105000
+ *                         total_harga_rupiah:
+ *                           type: string
+ *                           example: "Rp 105.000"
+ *                         total_pelanggan:
+ *                           type: integer
+ *                           example: 2
+ *                         pesanan_pelanggan:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               id:
+ *                                 type: integer
+ *                                 example: 17
+ *                               nama:
+ *                                 type: string
+ *                                 example: "sarri"
+ *                               jumlah_cetak:
+ *                                 type: integer
+ *                                 example: 7
+ *                               jumlah_masak:
+ *                                 type: integer
+ *                                 example: 3
+ *                               total_harga:
+ *                                 type: integer
+ *                                 example: 35000
+ *                               total_harga_rupiah:
+ *                                 type: string
+ *                                 example: "Rp 35.000"
+ *                               waktu_wib:
+ *                                 type: string
+ *                                 example: "28 Okt 2026, 15:08 WIB"
+ *                     mingguan:
+ *                       type: object
+ *                       properties:
+ *                         periode:
+ *                           type: string
+ *                           example: "22 Okt - 28 Okt"
+ *                         tanggal_awal:
+ *                           type: string
+ *                           example: "2026-10-22"
+ *                         tanggal_akhir:
+ *                           type: string
+ *                           example: "2026-10-28"
+ *                         total_cetak:
+ *                           type: integer
+ *                           example: 45
+ *                         total_masak:
+ *                           type: integer
+ *                           example: 15
+ *                         total_pendapatan:
+ *                           type: integer
+ *                           example: 225000
+ *                         total_pendapatan_rupiah:
+ *                           type: string
+ *                           example: "Rp 225.000"
+ *                         total_transaksi_pelanggan:
+ *                           type: integer
+ *                           example: 6
+ *                     bulanan:
+ *                       type: object
+ *                       properties:
+ *                         periode:
+ *                           type: string
+ *                           example: "2026-10"
+ *                         nama_bulan:
+ *                           type: string
+ *                           example: "Oktober 2026"
+ *                         total_cetak:
+ *                           type: integer
+ *                           example: 125
+ *                         total_masak:
+ *                           type: integer
+ *                           example: 45
+ *                         total_pendapatan:
+ *                           type: integer
+ *                           example: 625000
+ *                         total_pendapatan_rupiah:
+ *                           type: string
+ *                           example: "Rp 625.000"
+ *                         total_transaksi_pelanggan:
+ *                           type: integer
+ *                           example: 18
+ *                     data_terakhir_masuk:
+ *                       type: object
+ *                       properties:
+ *                         tanggal:
+ *                           type: string
+ *                           example: "2026-10-28"
+ *                         tanggal_wib:
+ *                           type: string
+ *                           example: "Rabu, 28 Oktober 2026"
+ *                         jumlah_cetak:
+ *                           type: integer
+ *                           example: 21
+ *                         jumlah_masak:
+ *                           type: integer
+ *                           example: 8
+ *                         total_harga:
+ *                           type: integer
+ *                           example: 105000
+ *                         total_harga_rupiah:
+ *                           type: string
+ *                           example: "Rp 105.000"
+ *                     pesanan:
+ *                       type: object
+ *                       properties:
+ *                         global:
+ *                           type: object
+ *                         harian:
+ *                           type: object
+ *                         mingguan:
+ *                           type: object
+ *                     grafik:
+ *                       type: object
+ *                       properties:
+ *                         mode_terpilih:
+ *                           type: string
+ *                           example: "harian"
+ *                         harian:
+ *                           type: array
+ *                           description: 7 hari kalender terakhir (per hari mundur dari hari ini)
+ *                         mingguan:
+ *                           type: array
+ *                           description: 7 minggu kalender terakhir (per minggu mundur dari minggu ini)
+ *                         bulanan:
+ *                           type: array
+ *                           description: 7 bulan kalender terakhir (per bulan mundur dari bulan ini)
  *       401:
  *         description: Belum login atau API Key tidak valid
  *       500:
