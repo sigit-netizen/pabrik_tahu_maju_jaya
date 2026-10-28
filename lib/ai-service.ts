@@ -20,6 +20,7 @@ export interface Basis7HariItem {
 
 export interface AiPredictionResult {
   status: string;
+  mode: 'database' | 'simulasi';
   model_version: string;
   total_cetak_prediksi: number;
   periode_mulai: string;
@@ -28,8 +29,9 @@ export interface AiPredictionResult {
   bulan: number;
   detail_harian: DetailHarianPrediksi[];
   basis_7_hari_input: {
-    tanggal_acuan_input: string;
+    sumber_data: string;
     rentang_7_hari: string;
+    jumlah_hari_digunakan: number;
     rincian_per_hari: Basis7HariItem[];
   };
   metrik_evaluasi: {
@@ -37,40 +39,52 @@ export interface AiPredictionResult {
     r2_score: number;
     catatan: string;
   };
-  sumber_fitur: {
-    jumlah_hari_dari_database: number;
-    jumlah_hari_dari_dummy: number;
-    total_fitur: number;
-    fitur_terpakai: Record<string, number>;
-  };
+  fitur_input_16: Record<string, number>;
+  label_aktual_dataset?: number;
+}
+
+export interface CalculateOptions {
+  mode?: 'database' | 'simulasi';
+  tanggal?: string;
+  periode_mulai?: string;
+  dummy_row_index?: number;
+  data_simulasi?: Array<{
+    tanggal?: string;
+    jumlah_masak: number;
+    jumlah_cetak: number;
+  }>;
+}
+
+export class AiValidationError extends Error {
+  statusCode: number;
+  detail: Record<string, unknown>;
+
+  constructor(message: string, detail: Record<string, unknown> = {}) {
+    super(message);
+    this.name = 'AiValidationError';
+    this.statusCode = 400;
+    this.detail = detail;
+  }
 }
 
 /**
- * Baseline dummy data (diambil dari nilai rata-rata dataset pelatihan DatasetPenjualanTahuv3.csv)
+ * Mengambil data produksi dari tabel `product_harian`
+ * dan mengelompokkannya per tanggal WIB unik.
  */
-export const DEFAULT_DUMMY_DATA = {
-  masak: 32.0,
-  cetak: 190.0,
-};
-
-/**
- * Mengambil data produksi 7 hari kalender terakhir dari tabel `product_harian`
- * berdasarkan tanggal acuan yang di-input (default: hari ini WIB jika tidak diisi).
- */
-export async function get7HariProduksiDb(
+export async function getHariProduksiDb(
   anchorDateStr?: string
 ): Promise<Array<{ tanggal: string; jumlah_masak: number; jumlah_cetak: number }>> {
   try {
     const targetDateStr = anchorDateStr ? anchorDateStr.slice(0, 10) : getWibTodayDate();
     const [ay, am, ad] = targetDateStr.split('-').map(Number);
 
-    // Ambil rentang 14 hari sebelum tanggal acuan untuk memastikan 7 hari kalender tercakup
+    // Ambil rentang hingga 30 hari ke belakang dari tanggal acuan
     const startDate = new Date(Date.UTC(ay, am - 1, ad));
-    startDate.setUTCDate(startDate.getUTCDate() - 14);
+    startDate.setUTCDate(startDate.getUTCDate() - 30);
     const startIso = startDate.toISOString();
 
     const endDate = new Date(Date.UTC(ay, am - 1, ad));
-    endDate.setUTCDate(endDate.getUTCDate() + 1); // Mencakup seluruh tanggal acuan
+    endDate.setUTCDate(endDate.getUTCDate() + 1);
     const endIso = endDate.toISOString();
 
     const { data, error } = await supabase
@@ -78,7 +92,7 @@ export async function get7HariProduksiDb(
       .select('created_at, jumlah_cetak, jumlah_masak')
       .gte('created_at', startIso)
       .lte('created_at', endIso)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: true });
 
     if (error || !data) {
       console.warn('[AIService] Gagal query product_harian:', error?.message);
@@ -104,23 +118,19 @@ export async function get7HariProduksiDb(
       });
     });
 
+    // Urutkan ascending berdasarkan tanggal
+    result.sort((a, b) => a.tanggal.localeCompare(b.tanggal));
     return result;
   } catch (err) {
-    console.warn('[AIService] Exception saat mengambil data 7 hari:', err);
+    console.warn('[AIService] Exception saat mengambil data produksi dari DB:', err);
     return [];
   }
 }
 
 /**
- * Menjalankan inference model Random Forest Python (best_rf_model.joblib)
- * via child_process dengan input JSON melalui stdin.
+ * Menjalankan inference script Python (model/predict.py)
  */
-export async function executePythonModel(payload: {
-  data_7_hari: Array<{ tanggal: string; jumlah_masak: number; jumlah_cetak: number }>;
-  tanggal?: string;
-  periode_mulai?: string;
-  fallback_dummy?: { masak: number; cetak: number };
-}): Promise<AiPredictionResult> {
+export async function executePythonModel(payload: Record<string, unknown>): Promise<AiPredictionResult> {
   return new Promise((resolve, reject) => {
     const scriptPath = path.resolve(process.cwd(), 'model', 'predict.py');
 
@@ -145,135 +155,102 @@ export async function executePythonModel(payload: {
     });
 
     py.on('close', (code) => {
+      const output = stdoutData.trim();
       if (code !== 0) {
         return reject(
-          new Error(`Python inference script exit code ${code}. Error: ${stderrData || stdoutData}`)
+          new Error(`Python inference script exit code ${code}. Error: ${stderrData || output}`)
         );
       }
 
       try {
-        const jsonResult = JSON.parse(stdoutData.trim()) as AiPredictionResult;
+        const jsonResult = JSON.parse(output);
         if (jsonResult.status === 'error') {
-          return reject(new Error(jsonResult['message' as keyof AiPredictionResult] as string || 'Error dari model Python'));
+          return reject(
+            new AiValidationError(jsonResult.message || 'Error pada model inferensi Random Forest', {
+              raw_error: jsonResult,
+            })
+          );
         }
-        resolve(jsonResult);
+        resolve(jsonResult as AiPredictionResult);
       } catch (parseErr) {
         reject(
-          new Error(`Gagal parse output JSON dari Python: ${stdoutData}. Error: ${String(parseErr)}`)
+          new Error(`Gagal parse output JSON dari Python: ${output}. Error: ${String(parseErr)}`)
         );
       }
     });
 
-    // Kirim payload JSON ke stdin Python
     py.stdin.write(JSON.stringify(payload));
     py.stdin.end();
   });
 }
 
 /**
- * Fallback jika Python runtime tidak tersedia di lingkungan server tertentu
- */
-function generateFallbackPrediction(
-  dataDb: Array<{ tanggal: string; jumlah_masak: number; jumlah_cetak: number }>,
-  anchorDateStr: string,
-  periodeMulaiStr: string
-): AiPredictionResult {
-  const dMulai = new Date(periodeMulaiStr);
-  const mingguKe = Math.ceil((dMulai.getDate() + 6) / 7);
-  const bulan = dMulai.getMonth() + 1;
-
-  const namaHari = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
-  const baseAvg = 178;
-  const detailHarian: DetailHarianPrediksi[] = namaHari.map((hari, i) => {
-    const cur = new Date(dMulai);
-    cur.setDate(dMulai.getDate() + i);
-    const faktor = (hari === 'Sabtu' || hari === 'Minggu') ? 1.15 : 1.0;
-    const est = Math.round(baseAvg * faktor);
-    return {
-      hari,
-      tanggal: cur.toISOString().split('T')[0],
-      estimasi_cetak: est,
-    };
-  });
-
-  const total = detailHarian.reduce((a, b) => a + b.estimasi_cetak, 0);
-  const dSelesai = new Date(dMulai);
-  dSelesai.setDate(dMulai.getDate() + 6);
-
-  return {
-    status: 'success',
-    model_version: 'RandomForestRegressor-Tuned-v1 (In-Memory Fallback)',
-    total_cetak_prediksi: total,
-    periode_mulai: periodeMulaiStr,
-    periode_selesai: dSelesai.toISOString().split('T')[0],
-    minggu_ke: mingguKe,
-    bulan: bulan,
-    detail_harian: detailHarian,
-    basis_7_hari_input: {
-      tanggal_acuan_input: anchorDateStr,
-      rentang_7_hari: '7 hari sebelum periode prediksi',
-      rincian_per_hari: [],
-    },
-    metrik_evaluasi: {
-      mae: 6.42,
-      r2_score: 0.7712,
-      catatan: 'Model Random Forest (R2 77%)',
-    },
-    sumber_fitur: {
-      jumlah_hari_dari_database: dataDb.length,
-      jumlah_hari_dari_dummy: 7 - dataDb.length,
-      total_fitur: 16,
-      fitur_terpakai: {},
-    },
-  };
-}
-
-/**
- * Menghasilkan prediksi AI lengkap:
- * 1. Menentukan tanggal acuan (berdasarkan input tanggal dari user atau default hari ini)
- * 2. Mengambil data 7 hari terakhir dari database `product_harian` berdasarkan tanggal tersebut
- * 3. Melengkapi hari yang kosong dengan data dummy baseline
- * 4. Eksekusi `best_rf_model.joblib` via Python inference
+ * Menjalankan peramalan AI:
+ * - Mode 'database': Mengambil riil dari database. HARUS tepat 7 hari! Jika kurang dari 7 atau lebih dari 7, throw AiValidationError (400).
+ * - Mode 'simulasi': Menggunakan data dummy dari DatasetPenjualanTahuv3.csv untuk demonstrasi/testing.
  */
 export async function calculateAiPrediction(
-  options?: { tanggal?: string; periode_mulai?: string } | string
+  options: CalculateOptions = {}
 ): Promise<AiPredictionResult> {
-  let tanggalInput: string | undefined;
-  let periodeMulaiInput: string | undefined;
+  const mode = options.mode || 'database';
 
-  if (typeof options === 'string') {
-    periodeMulaiInput = options;
-  } else if (options && typeof options === 'object') {
-    tanggalInput = options.tanggal;
-    periodeMulaiInput = options.periode_mulai;
+  // ── 1. MODE SIMULASI (DATA DUMMY) ──────────────────────────────────────────
+  if (mode === 'simulasi') {
+    const payload: Record<string, unknown> = {
+      mode: 'simulasi',
+      dummy_row_index: options.dummy_row_index ?? 0,
+      tanggal: options.tanggal,
+      periode_mulai: options.periode_mulai,
+    };
+
+    if (options.data_simulasi) {
+      if (options.data_simulasi.length !== 7) {
+        throw new AiValidationError(
+          `Data simulasi kustom harus tepat 7 hari (diterima: ${options.data_simulasi.length} hari).`,
+          {
+            jumlah_hari_diterima: options.data_simulasi.length,
+            jumlah_hari_dibutuhkan: 7,
+          }
+        );
+      }
+      payload.data_7_hari = options.data_simulasi;
+    }
+
+    return await executePythonModel(payload);
   }
 
-  // Tanggal acuan default adalah hari ini waktu WIB jika user tidak menginput tanggal
-  const todayWib = getWibTodayDate();
-  const anchorDate = tanggalInput || todayWib;
+  // ── 2. MODE DATABASE RIIL (STRICT 7 HARI) ───────────────────────────────────
+  const anchorDate = options.tanggal || getWibTodayDate();
+  const allDbRows = await getHariProduksiDb(anchorDate);
 
-  // 1. Ambil data riil dari Supabase berdasarkan tanggal acuan
-  const dataDb = await get7HariProduksiDb(anchorDate);
+  // Filter atau ambil 7 hari terakhir yang tersedia sampai tanggal acuan
+  const filtered = allDbRows.filter((r) => r.tanggal <= anchorDate);
 
-  // 2. Tentukan periode mulai jika belum diisi
-  let targetPeriodeMulai = periodeMulaiInput;
-  if (!targetPeriodeMulai) {
-    const anchor = new Date(anchorDate);
-    anchor.setDate(anchor.getDate() + 1);
-    targetPeriodeMulai = anchor.toISOString().split('T')[0];
+  // VALIDASI KETAT:
+  if (filtered.length < 7) {
+    const daftarTgl = filtered.map((r) => r.tanggal);
+    throw new AiValidationError(
+      `Data produksi di database belum mencukupi 7 hari (hanya ditemukan ${filtered.length} hari: ${JSON.stringify(daftarTgl)}). ` +
+      `Model Random Forest membutuhkan tepat 7 hari data historis produksi. ` +
+      `Silakan lengkapi data pada tabel product_harian atau gunakan mode 'simulasi' untuk pengujian data dummy.`,
+      {
+        jumlah_hari_ditemukan: filtered.length,
+        jumlah_hari_dibutuhkan: 7,
+        tanggal_yang_ada: daftarTgl,
+        saran: "Gunakan mode 'simulasi' (/api/ai/prediksi/simulasi) untuk menguji model dengan data dummy dari DatasetPenjualanTahuv3.csv.",
+      }
+    );
   }
 
-  // 3. Jalankan Python Inference
-  try {
-    const result = await executePythonModel({
-      data_7_hari: dataDb,
-      tanggal: anchorDate,
-      periode_mulai: targetPeriodeMulai,
-      fallback_dummy: DEFAULT_DUMMY_DATA,
-    });
-    return result;
-  } catch (pyError) {
-    console.warn('[AIService] Python inference gagal/tidak tersedia, beralih ke fallback cerdas:', pyError);
-    return generateFallbackPrediction(dataDb, anchorDate, targetPeriodeMulai);
-  }
+  // Ambil tepat 7 hari terakhir
+  const last7Days = filtered.slice(-7);
+
+  const payload: Record<string, unknown> = {
+    mode: 'database',
+    data_7_hari: last7Days,
+    tanggal: anchorDate,
+    periode_mulai: options.periode_mulai,
+  };
+
+  return await executePythonModel(payload);
 }
