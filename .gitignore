@@ -46,7 +46,6 @@ next-env.d.ts
 # opencode memory - jangan upload ke git
 MEMORY.md
 
-# ignore dataset and training folders
 model/dataset/
 model/training/
 dataset/
