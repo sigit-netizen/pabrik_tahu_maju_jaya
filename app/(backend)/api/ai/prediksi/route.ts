@@ -25,7 +25,7 @@ import { calculateAiPrediction, AiValidationError } from '@/lib/ai-service';
  *           type: string
  *           format: date
  *           example: "2026-10-28"
- *         description: Tanggal acuan 7 hari terakhir (default: hari ini waktu WIB)
+ *         description: "Tanggal acuan 7 hari terakhir (default: hari ini waktu WIB)"
  *       - in: query
  *         name: limit
  *         required: false
