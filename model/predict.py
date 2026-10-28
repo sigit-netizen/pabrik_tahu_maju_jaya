@@ -36,7 +36,7 @@ import numpy as np
 
 NAMA_HARI = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']
 
-# Preset Data Dummy 7 Hari Otomatis (Siap Pakai untuk Simulasi Langsung)
+# Preset Data Dummy 7 Hari Otomatis (Diambil langsung dari Row #0 DatasetPenjualanTahuv3.csv)
 PRESET_DUMMY_7_HARI = [
     {'urutan_hari': 1, 'hari': 'Senin', 'jumlah_masak': 34.0, 'jumlah_cetak': 202.0},
     {'urutan_hari': 2, 'hari': 'Selasa', 'jumlah_masak': 31.0, 'jumlah_cetak': 184.0},
@@ -44,7 +44,7 @@ PRESET_DUMMY_7_HARI = [
     {'urutan_hari': 4, 'hari': 'Kamis', 'jumlah_masak': 32.0, 'jumlah_cetak': 193.0},
     {'urutan_hari': 5, 'hari': 'Jumat', 'jumlah_masak': 32.0, 'jumlah_cetak': 193.0},
     {'urutan_hari': 6, 'hari': 'Sabtu', 'jumlah_masak': 33.0, 'jumlah_cetak': 197.0},
-    {'urutan_hari': 7, 'hari': 'Minggu', 'jumlah_masak': 35.0, 'jumlah_cetak': 211.0},
+    {'urutan_hari': 7, 'hari': 'Minggu', 'jumlah_masak': 25.0, 'jumlah_cetak': 150.0},
 ]
 
 def resolve_model_path():
@@ -127,8 +127,17 @@ def process_prediction(input_payload):
             records = get_builtin_simulation_records(target_dt)
             sumber_deskripsi = "Data Dummy Bawaan Sistem (Preset 7 Hari)"
 
-        minggu_ke = int(target_dt.isocalendar()[1])
-        bulan = int(target_dt.month)
+        # Ambil tanggal hari ke-7 (akhir window) untuk hitung minggu_ke dan bulan
+        # persis seperti df['tanggal_bersih'] = df['tanggal'].str.split('-').str[-1] di notebook
+        try:
+            day7_str = records[6].get('tanggal', '')[:10]
+            last_dt = datetime.strptime(day7_str, '%Y-%m-%d')
+        except Exception:
+            last_dt = target_dt - timedelta(days=1)
+
+        target_dt = last_dt + timedelta(days=1)
+        minggu_ke = int(last_dt.isocalendar()[1])
+        bulan = int(last_dt.month)
 
         fitur_dict = {}
         rincian_7_hari = []
@@ -210,8 +219,17 @@ def process_prediction(input_payload):
         except Exception:
             target_dt = datetime.now() + timedelta(days=1)
 
-        minggu_ke = int(target_dt.isocalendar()[1])
-        bulan = int(target_dt.month)
+        # Ambil tanggal hari ke-7 (akhir window) untuk hitung minggu_ke dan bulan
+        # persis seperti df['tanggal_bersih'] = df['tanggal'].str.split('-').str[-1] di notebook
+        try:
+            day7_str = records[6].get('tanggal', '')[:10]
+            last_dt = datetime.strptime(day7_str, '%Y-%m-%d')
+        except Exception:
+            last_dt = target_dt - timedelta(days=1)
+
+        target_dt = last_dt + timedelta(days=1)
+        minggu_ke = int(last_dt.isocalendar()[1])
+        bulan = int(last_dt.month)
         fitur_dict['minggu_ke'] = minggu_ke
         fitur_dict['bulan'] = bulan
         sumber_deskripsi = "Data Riil Database Supabase (product_harian)"

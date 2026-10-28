@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 import { supabase } from '@/lib/supabase';
 import { formatToWibDate, getWibTodayDate } from '@/lib/date-helper';
 
@@ -55,8 +56,9 @@ export interface CalculateOptions {
 }
 
 /**
- * Data Dummy 7 Hari Standar yang Sudah Disiapkan (Preset Otomatis)
- * Pengguna tidak perlu mengetik atau mengisi data secara manual.
+ * Data Dummy 7 Hari Standar yang Diambil Langsung dari Baris Awal Dataset
+ * (DatasetPenjualanTahuv3.csv Row #0)
+ * Pengguna tidak perlu mengisi secara manual saat pengujian.
  */
 export const DEFAULT_PRESET_DUMMY_7_HARI = [
   { urutan_hari: 1, hari: 'Senin', jumlah_masak: 34, jumlah_cetak: 202 },
@@ -65,7 +67,7 @@ export const DEFAULT_PRESET_DUMMY_7_HARI = [
   { urutan_hari: 4, hari: 'Kamis', jumlah_masak: 32, jumlah_cetak: 193 },
   { urutan_hari: 5, hari: 'Jumat', jumlah_masak: 32, jumlah_cetak: 193 },
   { urutan_hari: 6, hari: 'Sabtu', jumlah_masak: 33, jumlah_cetak: 197 },
-  { urutan_hari: 7, hari: 'Minggu', jumlah_masak: 35, jumlah_cetak: 211 },
+  { urutan_hari: 7, hari: 'Minggu', jumlah_masak: 25, jumlah_cetak: 150 },
 ];
 
 export class AiValidationError extends Error {
@@ -78,6 +80,30 @@ export class AiValidationError extends Error {
     this.statusCode = 400;
     this.detail = detail;
   }
+}
+
+/**
+ * Menemukan binary Python yang tepat (yang memiliki package pandas, sklearn, joblib)
+ * Menghindari pemanggilan Python 3.13 default Windows yang belum terinstal pandas.
+ */
+function getPythonExecutable(): string {
+  if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
+    return process.env.PYTHON_PATH;
+  }
+
+  // Jalur Python 3.11 utama tempat pandas & sklearn terpasang
+  const explicit311 = 'C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python311\\python.exe';
+  if (fs.existsSync(explicit311)) {
+    return explicit311;
+  }
+
+  const localAppData = process.env.LOCALAPPDATA || 'C:\\Users\\user\\AppData\\Local';
+  const pyCandidate = path.join(localAppData, 'Programs', 'Python', 'Python311', 'python.exe');
+  if (fs.existsSync(pyCandidate)) {
+    return pyCandidate;
+  }
+
+  return 'python';
 }
 
 /**
@@ -134,7 +160,7 @@ export async function getHariProduksiDb(
     result.sort((a, b) => a.tanggal.localeCompare(b.tanggal));
     return result;
   } catch (err) {
-    console.warn('[AIService] Exception saat mengambil data produksi dari DB:', err);
+    console.warn('[AIService] Exception saat query DB product_harian:', err);
     return [];
   }
 }
@@ -145,8 +171,9 @@ export async function getHariProduksiDb(
 export async function executePythonModel(payload: Record<string, unknown>): Promise<AiPredictionResult> {
   return new Promise((resolve, reject) => {
     const scriptPath = path.resolve(process.cwd(), 'model', 'predict.py');
+    const pythonBin = getPythonExecutable();
 
-    const py = spawn('python', [scriptPath], {
+    const py = spawn(pythonBin, [scriptPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
     });
@@ -163,7 +190,7 @@ export async function executePythonModel(payload: Record<string, unknown>): Prom
     });
 
     py.on('error', (err) => {
-      reject(new Error(`Gagal memanggil binary Python: ${err.message}`));
+      reject(new Error(`Gagal memanggil binary Python (${pythonBin}): ${err.message}`));
     });
 
     py.on('close', (code) => {
@@ -217,7 +244,8 @@ export async function calculateAiPrediction(
     if (options.data_simulasi) {
       if (options.data_simulasi.length !== 7) {
         throw new AiValidationError(
-          `Data simulasi kustom harus tepat 7 hari (diterima: ${options.data_simulasi.length} hari).`,
+          `Data simulasi kustom harus tepat 7 hari (diterima: ${options.data_simulasi.length} hari). ` +
+          `Sesuai dataset pelatihan, model Random Forest membutuhkan tepat 7 hari historis produksi.`,
           {
             jumlah_hari_diterima: options.data_simulasi.length,
             jumlah_hari_dibutuhkan: 7,
@@ -241,13 +269,13 @@ export async function calculateAiPrediction(
     const daftarTgl = filtered.map((r) => r.tanggal);
     throw new AiValidationError(
       `Data produksi di database belum mencukupi 7 hari (hanya ditemukan ${filtered.length} hari: ${JSON.stringify(daftarTgl)}). ` +
-      `Model Random Forest membutuhkan tepat 7 hari data historis produksi. ` +
-      `Silakan lengkapi data pada tabel product_harian atau gunakan endpoint simulasi (/api/ai/prediksi/simulasi) untuk mencoba data dummy bawaan.`,
+      `Sesuai tahapan preprocessing pada notebook RandomForest_Tuning.ipynb, model membutuhkan tepat 7 hari data historis produksi (masak_1..7, cetak_1..7) untuk membentuk 1 window observasi. ` +
+      `Silakan lengkapi tabel product_harian atau gunakan endpoint simulasi (/api/ai/prediksi/simulasi) yang sudah memiliki data dummy siap pakai.`,
       {
         jumlah_hari_ditemukan: filtered.length,
         jumlah_hari_dibutuhkan: 7,
         tanggal_yang_ada: daftarTgl,
-        saran: "Gunakan endpoint simulasi (/api/ai/prediksi/simulasi) yang sudah memiliki data dummy bawaan siap pakai.",
+        saran: "Gunakan endpoint simulasi (/api/ai/prediksi/simulasi) yang sudah menyediakan data dummy 7 hari bawaan siap pakai.",
       }
     );
   }
