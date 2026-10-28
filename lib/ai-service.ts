@@ -40,20 +40,33 @@ export interface AiPredictionResult {
     catatan: string;
   };
   fitur_input_16: Record<string, number>;
-  label_aktual_dataset?: number;
 }
 
 export interface CalculateOptions {
   mode?: 'database' | 'simulasi';
   tanggal?: string;
   periode_mulai?: string;
-  dummy_row_index?: number;
   data_simulasi?: Array<{
+    hari?: string;
     tanggal?: string;
     jumlah_masak: number;
     jumlah_cetak: number;
   }>;
 }
+
+/**
+ * Data Dummy 7 Hari Standar yang Sudah Disiapkan (Preset Otomatis)
+ * Pengguna tidak perlu mengetik atau mengisi data secara manual.
+ */
+export const DEFAULT_PRESET_DUMMY_7_HARI = [
+  { urutan_hari: 1, hari: 'Senin', jumlah_masak: 34, jumlah_cetak: 202 },
+  { urutan_hari: 2, hari: 'Selasa', jumlah_masak: 31, jumlah_cetak: 184 },
+  { urutan_hari: 3, hari: 'Rabu', jumlah_masak: 33, jumlah_cetak: 200 },
+  { urutan_hari: 4, hari: 'Kamis', jumlah_masak: 32, jumlah_cetak: 193 },
+  { urutan_hari: 5, hari: 'Jumat', jumlah_masak: 32, jumlah_cetak: 193 },
+  { urutan_hari: 6, hari: 'Sabtu', jumlah_masak: 33, jumlah_cetak: 197 },
+  { urutan_hari: 7, hari: 'Minggu', jumlah_masak: 35, jumlah_cetak: 211 },
+];
 
 export class AiValidationError extends Error {
   statusCode: number;
@@ -118,7 +131,6 @@ export async function getHariProduksiDb(
       });
     });
 
-    // Urutkan ascending berdasarkan tanggal
     result.sort((a, b) => a.tanggal.localeCompare(b.tanggal));
     return result;
   } catch (err) {
@@ -186,19 +198,18 @@ export async function executePythonModel(payload: Record<string, unknown>): Prom
 
 /**
  * Menjalankan peramalan AI:
- * - Mode 'database': Mengambil riil dari database. HARUS tepat 7 hari! Jika kurang dari 7 atau lebih dari 7, throw AiValidationError (400).
- * - Mode 'simulasi': Menggunakan data dummy dari DatasetPenjualanTahuv3.csv untuk demonstrasi/testing.
+ * - Mode 'database': Mengambil murni dari tabel `product_harian`. HARUS tepat 7 hari (jika < 7 atau > 7, reject 400).
+ * - Mode 'simulasi': Menggunakan data dummy 7 hari bawaan sistem yang sudah terisi otomatis (siap pakai).
  */
 export async function calculateAiPrediction(
   options: CalculateOptions = {}
 ): Promise<AiPredictionResult> {
   const mode = options.mode || 'database';
 
-  // ── 1. MODE SIMULASI (DATA DUMMY) ──────────────────────────────────────────
+  // ── 1. MODE SIMULASI (DATA DUMMY OTOMATIS) ─────────────────────────────────
   if (mode === 'simulasi') {
     const payload: Record<string, unknown> = {
       mode: 'simulasi',
-      dummy_row_index: options.dummy_row_index ?? 0,
       tanggal: options.tanggal,
       periode_mulai: options.periode_mulai,
     };
@@ -213,7 +224,7 @@ export async function calculateAiPrediction(
           }
         );
       }
-      payload.data_7_hari = options.data_simulasi;
+      payload.data_simulasi = options.data_simulasi;
     }
 
     return await executePythonModel(payload);
@@ -223,26 +234,24 @@ export async function calculateAiPrediction(
   const anchorDate = options.tanggal || getWibTodayDate();
   const allDbRows = await getHariProduksiDb(anchorDate);
 
-  // Filter atau ambil 7 hari terakhir yang tersedia sampai tanggal acuan
   const filtered = allDbRows.filter((r) => r.tanggal <= anchorDate);
 
-  // VALIDASI KETAT:
+  // VALIDASI KETAT HARUS TEPAT 7 HARI:
   if (filtered.length < 7) {
     const daftarTgl = filtered.map((r) => r.tanggal);
     throw new AiValidationError(
       `Data produksi di database belum mencukupi 7 hari (hanya ditemukan ${filtered.length} hari: ${JSON.stringify(daftarTgl)}). ` +
       `Model Random Forest membutuhkan tepat 7 hari data historis produksi. ` +
-      `Silakan lengkapi data pada tabel product_harian atau gunakan mode 'simulasi' untuk pengujian data dummy.`,
+      `Silakan lengkapi data pada tabel product_harian atau gunakan endpoint simulasi (/api/ai/prediksi/simulasi) untuk mencoba data dummy bawaan.`,
       {
         jumlah_hari_ditemukan: filtered.length,
         jumlah_hari_dibutuhkan: 7,
         tanggal_yang_ada: daftarTgl,
-        saran: "Gunakan mode 'simulasi' (/api/ai/prediksi/simulasi) untuk menguji model dengan data dummy dari DatasetPenjualanTahuv3.csv.",
+        saran: "Gunakan endpoint simulasi (/api/ai/prediksi/simulasi) yang sudah memiliki data dummy bawaan siap pakai.",
       }
     );
   }
 
-  // Ambil tepat 7 hari terakhir
   const last7Days = filtered.slice(-7);
 
   const payload: Record<string, unknown> = {

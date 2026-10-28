@@ -3,7 +3,6 @@
 """
 Inference Script untuk Model Random Forest Produksi Tahu
 Model: best_rf_model.joblib
-Dataset: model/dataset/DatasetPenjualanTahuv3.csv
 
 Struktur Fitur (16 kolom sesuai RandomForest_Tuning.ipynb):
 - masak_1, cetak_1 (Hari ke-1)
@@ -16,14 +15,15 @@ Struktur Fitur (16 kolom sesuai RandomForest_Tuning.ipynb):
 - minggu_ke: Minggu ke dalam kalender ISO (1-52)
 - bulan: Bulan dalam kalender (1-12)
 
-Mode Eksekusi:
+Dua Jalur Prediksi:
 1. Mode "database":
    Murni menggunakan data dari database `product_harian`.
    VALIDASI KETAT: Harus tepat 7 hari! Jika kurang dari 7 atau lebih dari 7,
    skrip akan menghasilkan ERROR / exception eksplisit.
 2. Mode "simulasi":
-   Menggunakan sampel data dummy dari `DatasetPenjualanTahuv3.csv`
+   Menggunakan preset data dummy 7 hari bawaan sistem
    (atau array 7 hari simulasi yang dikirimkan pengguna).
+   TIDAK MEMERLUKAN FILE CSV.
 """
 
 import sys
@@ -35,6 +35,17 @@ import pandas as pd
 import numpy as np
 
 NAMA_HARI = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']
+
+# Preset Data Dummy 7 Hari Otomatis (Siap Pakai untuk Simulasi Langsung)
+PRESET_DUMMY_7_HARI = [
+    {'urutan_hari': 1, 'hari': 'Senin', 'jumlah_masak': 34.0, 'jumlah_cetak': 202.0},
+    {'urutan_hari': 2, 'hari': 'Selasa', 'jumlah_masak': 31.0, 'jumlah_cetak': 184.0},
+    {'urutan_hari': 3, 'hari': 'Rabu', 'jumlah_masak': 33.0, 'jumlah_cetak': 200.0},
+    {'urutan_hari': 4, 'hari': 'Kamis', 'jumlah_masak': 32.0, 'jumlah_cetak': 193.0},
+    {'urutan_hari': 5, 'hari': 'Jumat', 'jumlah_masak': 32.0, 'jumlah_cetak': 193.0},
+    {'urutan_hari': 6, 'hari': 'Sabtu', 'jumlah_masak': 33.0, 'jumlah_cetak': 197.0},
+    {'urutan_hari': 7, 'hari': 'Minggu', 'jumlah_masak': 35.0, 'jumlah_cetak': 211.0},
+]
 
 def resolve_model_path():
     """Mencari path best_rf_model.joblib secara dinamis"""
@@ -50,85 +61,38 @@ def resolve_model_path():
             return p
     raise FileNotFoundError(f"Model best_rf_model.joblib tidak ditemukan di lokasi: {candidates}")
 
-def resolve_dataset_path():
-    """Mencari path DatasetPenjualanTahuv3.csv secara dinamis"""
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    candidates = [
-        os.path.join(current_dir, 'dataset', 'DatasetPenjualanTahuv3.csv'),
-        os.path.join(current_dir, 'DatasetPenjualanTahuv3.csv'),
-        os.path.join(current_dir, '..', 'model', 'dataset', 'DatasetPenjualanTahuv3.csv'),
-        os.path.abspath(r'D:\semester7\capstone\my-app\model\dataset\DatasetPenjualanTahuv3.csv'),
-    ]
-    for p in candidates:
-        if os.path.isfile(p):
-            return p
-    raise FileNotFoundError(f"DatasetPenjualanTahuv3.csv tidak ditemukan di lokasi: {candidates}")
-
-def get_dummy_simulation_record(row_index=0):
-    """Mengambil satu baris 7 hari dari dataset pelatihan untuk simulasi data dummy"""
-    dataset_path = resolve_dataset_path()
-    df = pd.read_csv(dataset_path)
-    
-    # Ambil baris yang lengkap tanpa nilai NaN
-    df_clean = df.dropna().reset_index(drop=True)
-    if row_index >= len(df_clean):
-        row_index = 0
-    row = df_clean.iloc[row_index]
-
+def get_builtin_simulation_records(target_dt):
+    """Menyiapkan 7 hari data dummy otomatis dengan tanggal riil mundur dari target_dt"""
     records = []
-    today = datetime.now()
-    # Tentukan 7 tanggal berurutan untuk simulasi
     for i in range(1, 8):
-        day_date = today - timedelta(days=8 - i)
+        day_date = target_dt - timedelta(days=8 - i)
+        preset_item = PRESET_DUMMY_7_HARI[i - 1]
         records.append({
             'urutan_hari': i,
             'tanggal': day_date.strftime('%Y-%m-%d'),
             'hari': NAMA_HARI[day_date.weekday()],
-            'jumlah_masak': float(row[f'masak_{i}']),
-            'jumlah_cetak': float(row[f'cetak_{i}']),
-            'sumber': f"DatasetPenjualanTahuv3.csv (Baris #{row_index})"
+            'jumlah_masak': float(preset_item['jumlah_masak']),
+            'jumlah_cetak': float(preset_item['jumlah_cetak']),
+            'sumber': 'Data Dummy Bawaan Sistem (Preset 7 Hari)'
         })
-
-    return records, row.get('label', None)
+    return records
 
 def process_prediction(input_payload):
     """
     Menjalankan proses inferensi Random Forest berdasarkan mode:
     - 'database' (Strict: harus tepat 7 hari data riil dari DB)
-    - 'simulasi' (Menggunakan data dummy dari dataset pelatihan)
+    - 'simulasi' (Menggunakan data dummy otomatis atau input custom 7 hari)
     """
     mode = str(input_payload.get('mode', 'database')).lower()
     model_path = resolve_model_path()
     model = joblib.load(model_path)
 
-    raw_records = input_payload.get('data_7_hari') or input_payload.get('records') or []
+    raw_records = input_payload.get('data_7_hari') or input_payload.get('data_simulasi') or input_payload.get('records') or []
     anchor_date_str = input_payload.get('tanggal') or input_payload.get('tanggal_acuan')
     periode_mulai_str = input_payload.get('periode_mulai')
 
-    # ── 1. MODE SIMULASI DATA DUMMY ──────────────────────────────────────────
+    # ── 1. MODE SIMULASI DATA DUMMY (OTOMATIS / KUSTOM) ──────────────────────
     if mode in ['simulasi', 'dummy']:
-        actual_label = None
-        # Jika pengguna mengirimkan array custom simulasi
-        if raw_records and len(raw_records) > 0:
-            if len(raw_records) < 7:
-                raise ValueError(
-                    f"Validasi Gagal: Data simulasi yang dikirim kurang dari 7 hari (diterima: {len(raw_records)} hari). "
-                    f"Model Random Forest membutuhkan tepat 7 hari data produksi."
-                )
-            if len(raw_records) > 7:
-                raise ValueError(
-                    f"Validasi Gagal: Data simulasi yang dikirim lebih dari 7 hari (diterima: {len(raw_records)} hari). "
-                    f"Model Random Forest membutuhkan tepat 7 hari data produksi."
-                )
-            # Ambil 7 hari tersebut
-            records = raw_records[:7]
-            sumber_deskripsi = "Input Simulasi Kustom Pengguna (7 Hari)"
-        else:
-            # Ambil sampel dari DatasetPenjualanTahuv3.csv
-            row_idx = int(input_payload.get('dummy_row_index', 0))
-            records, actual_label = get_dummy_simulation_record(row_idx)
-            sumber_deskripsi = f"DatasetPenjualanTahuv3.csv (Data Dummy Baris #{row_idx})"
-
         # Tentukan tanggal target prediksi
         if periode_mulai_str:
             try:
@@ -144,10 +108,28 @@ def process_prediction(input_payload):
         else:
             target_dt = datetime.now() + timedelta(days=1)
 
+        # Jika pengguna mengirimkan array custom simulasi
+        if raw_records and len(raw_records) > 0:
+            if len(raw_records) < 7:
+                raise ValueError(
+                    f"Validasi Gagal: Data simulasi yang dikirim kurang dari 7 hari (diterima: {len(raw_records)} hari). "
+                    f"Model Random Forest membutuhkan tepat 7 hari data produksi."
+                )
+            if len(raw_records) > 7:
+                raise ValueError(
+                    f"Validasi Gagal: Data simulasi yang dikirim lebih dari 7 hari (diterima: {len(raw_records)} hari). "
+                    f"Model Random Forest membutuhkan tepat 7 hari data produksi."
+                )
+            records = raw_records[:7]
+            sumber_deskripsi = "Input Kustom Pengguna (7 Hari)"
+        else:
+            # Gunakan preset data dummy bawaan otomatis (tidak perlu ketik manual!)
+            records = get_builtin_simulation_records(target_dt)
+            sumber_deskripsi = "Data Dummy Bawaan Sistem (Preset 7 Hari)"
+
         minggu_ke = int(target_dt.isocalendar()[1])
         bulan = int(target_dt.month)
 
-        # Susun 16 fitur
         fitur_dict = {}
         rincian_7_hari = []
         for i, item in enumerate(records, start=1):
@@ -170,16 +152,15 @@ def process_prediction(input_payload):
         fitur_dict['minggu_ke'] = minggu_ke
         fitur_dict['bulan'] = bulan
 
-    # ── 2. MODE DATABASE RIIL (STRICT VALIDATION) ────────────────────────────
+    # ── 2. MODE DATABASE RIIL (STRICT VALIDATION 7 HARI) ────────────────────
     else:
-        # Validasi ketat: Data dari DB HARUS tepat 7 hari!
         jumlah_hari = len(raw_records)
         if jumlah_hari < 7:
             daftar_tgl = [r.get('tanggal') for r in raw_records if isinstance(r, dict) and r.get('tanggal')]
             raise ValueError(
                 f"Data produksi di database belum mencukupi 7 hari (hanya ditemukan {jumlah_hari} hari: {daftar_tgl}). "
                 f"Model Random Forest membutuhkan tepat 7 hari data historis produksi. "
-                f"Silakan lengkapi data pada tabel product_harian atau gunakan mode 'simulasi' untuk pengujian data dummy."
+                f"Silakan lengkapi data pada tabel product_harian atau gunakan mode 'simulasi' untuk pengujian data dummy otomatis."
             )
         if jumlah_hari > 7:
             raise ValueError(
@@ -187,13 +168,11 @@ def process_prediction(input_payload):
                 f"Model Random Forest membutuhkan tepat 7 hari data historis produksi."
             )
 
-        # Urutkan berdasarkan tanggal jika ada (dari H-7 ke H-1)
         sorted_records = sorted(
             raw_records,
             key=lambda x: str(x.get('tanggal', '')) if isinstance(x, dict) else ''
         )
 
-        # Validasi setiap hari tidak boleh kosong atau <= 0
         rincian_7_hari = []
         fitur_dict = {}
         for i, item in enumerate(sorted_records, start=1):
@@ -224,7 +203,6 @@ def process_prediction(input_payload):
                 'sumber': 'database_product_harian'
             })
 
-        # Tentukan tanggal target periode prediksi (keesokan hari setelah hari ke-7)
         last_tgl = str(sorted_records[-1].get('tanggal', ''))[:10]
         try:
             last_dt = datetime.strptime(last_tgl, '%Y-%m-%d')
@@ -236,7 +214,6 @@ def process_prediction(input_payload):
         bulan = int(target_dt.month)
         fitur_dict['minggu_ke'] = minggu_ke
         fitur_dict['bulan'] = bulan
-        actual_label = None
         sumber_deskripsi = "Data Riil Database Supabase (product_harian)"
 
     # ── 3. EKSEKUSI MODEL RANDOM FOREST (16 FITUR) ───────────────────────────
@@ -276,7 +253,7 @@ def process_prediction(input_payload):
     tgl_awal_input = rincian_7_hari[0]['tanggal'] if rincian_7_hari else ''
     tgl_akhir_input = rincian_7_hari[-1]['tanggal'] if rincian_7_hari else ''
 
-    res = {
+    return {
         'status': 'success',
         'mode': mode,
         'model_version': 'RandomForestRegressor-Tuned-v1',
@@ -299,11 +276,6 @@ def process_prediction(input_payload):
         },
         'fitur_input_16': fitur_dict
     }
-
-    if actual_label is not None:
-        res['label_aktual_dataset'] = float(actual_label)
-
-    return res
 
 def main():
     payload = {}
