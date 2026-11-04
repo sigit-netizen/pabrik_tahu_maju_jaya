@@ -90,10 +90,11 @@ export async function GET(request: Request) {
  * @swagger
  * /api/pengaturan/harga:
  *   post:
- *     summary: Menetapkan / Menambahkan harga baru per cetakan tahu (Menu Pengaturan)
+ *     summary: Menetapkan / Memperbarui harga per cetakan tahu (Menu Pengaturan)
  *     description: |
- *       Admin mengatur tarif baru harga cetakan tahu. Harga terbaru ini otomatis
- *       langsung dipakai untuk perhitungan form produksi berikutnya.
+ *       Admin mengatur tarif baru harga cetakan tahu. Jika sudah ada data harga cetak di database,
+ *       baris yang ada akan diperbarui (update). Jika belum ada, baris baru dibuat (insert).
+ *       Harga terbaru otomatis dipakai untuk perhitungan form produksi berikutnya.
  *     tags:
  *       - Pengaturan
  *     requestBody:
@@ -110,8 +111,8 @@ export async function GET(request: Request) {
  *                 description: Nominal harga baru per cetakan (Rp)
  *                 example: 2500
  *     responses:
- *       201:
- *         description: Harga cetak baru berhasil disimpan
+ *       200:
+ *         description: Harga cetak berhasil diperbarui
  *       400:
  *         description: Nilai harga tidak valid
  *       403:
@@ -136,27 +137,61 @@ export async function POST(request: Request) {
     }
 
     const timestampWib = toWibTimestamp();
-    const { data, error } = await supabase
-      .from('harga_cetak')
-      .insert([{ harga: nominal, created_at: timestampWib }])
-      .select()
-      .single();
 
-    if (error) {
-      if (error.code === '42501' || error.message.includes('row-level security')) {
+    // Cek apakah sudah ada data harga cetak di database
+    const { data: existingHarga, error: checkError } = await supabase
+      .from('harga_cetak')
+      .select('id')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (checkError) {
+      return NextResponse.json(
+        { status: 'error', message: 'Gagal memeriksa harga cetak di database', details: checkError.message },
+        { status: 500 }
+      );
+    }
+
+    let savedData;
+    let savedError;
+
+    if (existingHarga?.id) {
+      // Perbarui (UPDATE) baris harga yang sudah ada agar tidak membuat baris baru di tabel
+      const { data, error } = await supabase
+        .from('harga_cetak')
+        .update({ harga: nominal, created_at: timestampWib })
+        .eq('id', existingHarga.id)
+        .select()
+        .single();
+      savedData = data;
+      savedError = error;
+    } else {
+      // Jika tabel masih kosong, baru buat baris pertama (INSERT)
+      const { data, error } = await supabase
+        .from('harga_cetak')
+        .insert([{ harga: nominal, created_at: timestampWib }])
+        .select()
+        .single();
+      savedData = data;
+      savedError = error;
+    }
+
+    if (savedError) {
+      if (savedError.code === '42501' || savedError.message.includes('row-level security')) {
         return NextResponse.json(
           {
             status: 'error',
-            message: 'Akses insert ke tabel harga_cetak terhalang Row Level Security (RLS) Supabase.',
+            message: 'Akses ke tabel harga_cetak terhalang Row Level Security (RLS) Supabase.',
             solusi: 'Jalankan query di Supabase SQL Editor: ALTER TABLE harga_cetak DISABLE ROW LEVEL SECURITY;',
-            details: error.message,
+            details: savedError.message,
           },
           { status: 403 }
         );
       }
 
       return NextResponse.json(
-        { status: 'error', message: 'Gagal menyimpan harga cetak baru ke database', details: error.message },
+        { status: 'error', message: 'Gagal memperbarui harga cetak di database', details: savedError.message },
         { status: 500 }
       );
     }
@@ -172,15 +207,15 @@ export async function POST(request: Request) {
         status: 'success',
         message: `Harga cetak berhasil diperbarui menjadi ${formatRupiah} per cetakan!`,
         data: {
-          id: data.id,
-          harga: Number(data.harga),
+          id: savedData.id,
+          harga: Number(savedData.harga),
           harga_rupiah: formatRupiah,
-          created_at: data.created_at,
-          berlaku_sejak: data.created_at,
-          waktu_wib: formatToWibDisplay(data.created_at),
+          created_at: savedData.created_at,
+          berlaku_sejak: savedData.created_at,
+          waktu_wib: formatToWibDisplay(savedData.created_at),
         },
       },
-      { status: 201 }
+      { status: 200 }
     );
   } catch (error) {
     return NextResponse.json(

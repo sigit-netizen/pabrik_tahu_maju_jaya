@@ -90,6 +90,7 @@ const headerBersama = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  serverExternalPackages: ["onnxruntime-node"],
 
   async headers() {
     return [

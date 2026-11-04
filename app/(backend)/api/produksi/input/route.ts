@@ -134,25 +134,52 @@ export async function POST(request: Request) {
     // Validasi setiap baris rincian
     for (let i = 0; i < rincian.length; i++) {
       const item = rincian[i];
-      if (!item.nama || item.nama.trim() === '') {
+      if (!item.nama || typeof item.nama !== 'string' || item.nama.trim() === '') {
         return NextResponse.json(
           { status: 'error', message: `Baris ke-${i + 1}: Nama pelanggan tidak boleh kosong!` },
           { status: 400 }
         );
       }
-      if (item.jumlah_cetak === undefined || Number(item.jumlah_cetak) < 0) {
+
+      const jumlahCetak = Number(item.jumlah_cetak);
+      if (
+        item.jumlah_cetak === undefined ||
+        item.jumlah_cetak === null ||
+        String(item.jumlah_cetak).trim() === '' ||
+        isNaN(jumlahCetak) ||
+        jumlahCetak <= 0
+      ) {
         return NextResponse.json(
-          { status: 'error', message: `Baris ke-${i + 1} (${item.nama}): jumlah_cetak tidak boleh negatif!` },
+          {
+            status: 'error',
+            message: `Baris ke-${i + 1} (${item.nama}): jumlah_cetak tidak boleh kosong atau 0! Harus bernilai lebih dari 0.`,
+          },
           { status: 400 }
         );
       }
-      if (item.jumlah_masak === undefined || Number(item.jumlah_masak) < 0) {
+
+      const jumlahMasak = Number(item.jumlah_masak);
+      if (
+        item.jumlah_masak === undefined ||
+        item.jumlah_masak === null ||
+        String(item.jumlah_masak).trim() === '' ||
+        isNaN(jumlahMasak) ||
+        jumlahMasak <= 0
+      ) {
         return NextResponse.json(
-          { status: 'error', message: `Baris ke-${i + 1} (${item.nama}): jumlah_masak tidak boleh negatif!` },
+          {
+            status: 'error',
+            message: `Baris ke-${i + 1} (${item.nama}): jumlah_masak tidak boleh kosong atau 0! Harus bernilai lebih dari 0.`,
+          },
           { status: 400 }
         );
       }
-      if (item.total !== undefined && Number(item.total) < 0) {
+
+      if (
+        item.total !== undefined &&
+        item.total !== null &&
+        (isNaN(Number(item.total)) || Number(item.total) < 0)
+      ) {
         return NextResponse.json(
           { status: 'error', message: `Baris ke-${i + 1} (${item.nama}): total tidak boleh negatif!` },
           { status: 400 }
