@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { formatRibuan, type InputRow } from "./data";
+import { IconAlert, IconCheck, IconChevronRight, IconMinus, IconPlus, IconPot } from "./icons";
 import { skin } from "./theme";
 
 const KUNCI_DRAFT = "tmj_input";
@@ -194,8 +195,8 @@ export default function InputView({ onToast, dark }: { onToast: (m: string) => v
         <div className="absolute -top-10 -right-10 h-40 w-40 rounded-full bg-brand/25 blur-3xl" aria-hidden />
         <div className="relative flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <span className="steam relative grid h-12 w-12 place-items-center rounded-2xl bg-cream/10 text-2xl" aria-hidden>
-              🍲
+            <span className="steam relative grid h-12 w-12 place-items-center rounded-2xl bg-cream/10" aria-hidden>
+              <IconPot className="h-[22px] w-[22px]" />
               <span style={{ left: "35%", animationDelay: "0s" }} />
               <span style={{ left: "55%", animationDelay: "0.9s" }} />
             </span>
@@ -238,8 +239,14 @@ export default function InputView({ onToast, dark }: { onToast: (m: string) => v
       {/* tabel input */}
       <div className="overflow-x-auto p-4 sm:p-5">
         {!siap ? (
-          <div role="status" className={`rounded-2xl border px-4 py-10 text-center ${s.panel}`}>
-            <p className={`text-[13px] font-semibold ${s.sub}`}>Memuat draft tersimpan…</p>
+          <div role="status" aria-label="Memuat draft tersimpan" className="space-y-2">
+            <p className={`text-[12.5px] font-semibold ${s.sub}`}>Memuat draft tersimpan…</p>
+            <div className={`overflow-hidden rounded-2xl border ${s.garis}`}>
+              <div className={`shimmer-wrap h-11 ${dark ? "bg-cream/10" : "bg-cream-muted"}`} />
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className={`shimmer-wrap h-12 border-t ${dark ? "bg-cream/5" : "bg-white"} ${s.garis}`} />
+              ))}
+            </div>
           </div>
         ) : rows.length === 0 ? (
           <div className={`rounded-2xl border px-4 py-10 text-center ${s.panel}`}>
@@ -302,9 +309,9 @@ export default function InputView({ onToast, dark }: { onToast: (m: string) => v
                       className={`btn-press inline-flex h-8 w-14 items-center rounded-full p-1 transition-colors ${r.done ? "bg-brand" : s.track}`}
                     >
                       <span
-                        className={`grid h-6 w-6 place-items-center rounded-full bg-white text-[12px] font-bold shadow transition-all ${r.done ? "translate-x-6 text-brand" : `translate-x-0 ${s.ikon}`}`}
+                        className={`grid h-6 w-6 place-items-center rounded-full bg-white shadow transition-all ${r.done ? "translate-x-6 text-brand" : `translate-x-0 ${s.ikon}`}`}
                       >
-                        {r.done ? "✓" : "○"}
+                        {r.done ? <IconCheck className="h-3.5 w-3.5" /> : <IconMinus className="h-3.5 w-3.5" />}
                       </span>
                     </button>
                   </td>
@@ -319,9 +326,7 @@ export default function InputView({ onToast, dark }: { onToast: (m: string) => v
             role="alert"
             className={`mt-3 flex items-start gap-2.5 rounded-2xl border px-4 py-3 ${dark ? "border-red-400/40 bg-red-500/12" : "border-red-300/60 bg-red-50/70"}`}
           >
-            <span className={`mt-px shrink-0 ${dark ? "text-red-300" : "text-red-600"}`} aria-hidden>
-              ⚠
-            </span>
+            <IconAlert className={`mt-px h-4 w-4 shrink-0 ${dark ? "text-red-300" : "text-red-600"}`} />
             <p className={`text-[12.5px] leading-5 font-semibold ${dark ? "text-red-200" : "text-red-800"}`}>{error}</p>
           </div>
         )}
@@ -331,9 +336,10 @@ export default function InputView({ onToast, dark }: { onToast: (m: string) => v
             <button
               type="button"
               onClick={() => setRows((rs) => [...rs, barisKosong(rs.length ? Math.max(...rs.map((r) => r.id)) + 1 : 1)])}
-              className={`btn-press h-10 rounded-xl border border-dashed px-4 text-[12.5px] font-bold transition hover:border-brand hover:text-brand-deep ${s.garis} ${s.judul}`}
+              className={`btn-press inline-flex h-10 items-center gap-2 rounded-xl border border-dashed px-4 text-[12.5px] font-bold transition hover:border-brand hover:text-brand-deep ${s.garis} ${s.judul}`}
             >
-              + Tambah baris
+              <IconPlus className="h-4 w-4" />
+              Tambah baris
             </button>
             <button
               type="button"
@@ -356,10 +362,10 @@ export default function InputView({ onToast, dark }: { onToast: (m: string) => v
           className={`flex flex-1 items-center gap-2 text-[12.5px] font-semibold ${sukses ? (dark ? "text-emerald-300" : "text-emerald-800") : s.sub}`}
         >
           <span
-            className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[12px] ${sukses ? "bg-emerald-600 text-white" : "bg-pine/10 text-pine/50"}`}
+            className={`grid h-6 w-6 shrink-0 place-items-center rounded-full ${sukses ? "bg-emerald-600 text-white" : "bg-pine/10 text-pine/50"}`}
             aria-hidden
           >
-            {sukses ? "✓" : "•"}
+            {sukses ? <IconCheck className="h-3.5 w-3.5" /> : <IconMinus className="h-3.5 w-3.5" />}
           </span>
           {sukses ?? "Isi nama pelanggan dan jumlah cetak/masak, lalu kirim ke rekap harian."}
         </div>
@@ -375,7 +381,10 @@ export default function InputView({ onToast, dark }: { onToast: (m: string) => v
               Mengirim…
             </span>
           ) : (
-            "Kirim ▸"
+            <span className="flex items-center justify-center gap-2">
+              Kirim
+              <IconChevronRight className="h-4 w-4" />
+            </span>
           )}
         </button>
       </div>

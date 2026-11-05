@@ -9,14 +9,15 @@ import InputView from "./InputView";
 import SettingsView from "./SettingsView";
 import { StatCard } from "./StatCard";
 import { Logo } from "./Logo";
+import { IconClock, IconDashboard, IconGear, IconMenu, IconClose, IconChevronRight, IconPencil, IconSparkle, IconTable, IconPot } from "./icons";
 import { hariIniLabel, type DashboardData, type Pengguna, type RingkasanDashboard, type ViewKey } from "./data";
 import { skin } from "./theme";
 
-const NAV: { key: ViewKey; label: string; icon: string; desc: string }[] = [
-  { key: "dashboard", label: "Dashboard", icon: "◧", desc: "Grafik & rekap" },
-  { key: "input", label: "Input", icon: "✎", desc: "Catat cetak" },
-  { key: "ai", label: "AI", icon: "✦", desc: "Prediksi" },
-  { key: "pengaturan", label: "Pengaturan", icon: "⚙", desc: "Profil & harga" },
+const NAV: { key: ViewKey; label: string; icon: React.ReactNode; desc: string }[] = [
+  { key: "dashboard", label: "Dashboard", icon: <IconDashboard className="h-[18px] w-[18px]" />, desc: "Grafik & rekap" },
+  { key: "input", label: "Input", icon: <IconPencil className="h-[18px] w-[18px]" />, desc: "Catat cetak" },
+  { key: "ai", label: "AI", icon: <IconSparkle className="h-[18px] w-[18px]" />, desc: "Prediksi" },
+  { key: "pengaturan", label: "Pengaturan", icon: <IconGear className="h-[18px] w-[18px]" />, desc: "Profil & harga" },
 ];
 
 const TITLES: Record<ViewKey, { t: string; s: string }> = {
@@ -25,6 +26,12 @@ const TITLES: Record<ViewKey, { t: string; s: string }> = {
   ai: { t: "Estimasi Produksi", s: "Perkiraan kebutuhan cetakan untuk pekan depan." },
   pengaturan: { t: "Pengaturan", s: "Kelola profil, tampilan, dan harga tahu." },
 };
+
+function formatRibuanRingkas(n: number) {
+  if (!n || n <= 0) return "0";
+  if (n >= 10000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}rb`;
+  return n.toLocaleString("id-ID");
+}
 
 export default function DashboardApp() {
   const router = useRouter();
@@ -37,9 +44,17 @@ export default function DashboardApp() {
       return false;
     }
   });
+  const [collapse, setCollapse] = useState(() => {
+    try {
+      return (JSON.parse(localStorage.getItem("tmj_settings") || "{}") as { collapse?: boolean }).collapse === true;
+    } catch {
+      return false;
+    }
+  });
   const [toast, setToast] = useState<string | null>(null);
   const [toastKey, setToastKey] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   /* sesi */
   const [cekSesi, setCekSesi] = useState(true);
@@ -110,7 +125,7 @@ export default function DashboardApp() {
     return () => {
       batal = true;
     };
-  }, []);
+  }, [refreshKey]);
 
   function ubahDark(v: boolean) {
     setDarkState(v);
@@ -121,6 +136,23 @@ export default function DashboardApp() {
     } catch (e) {
       console.warn("[tema] localStorage tidak bisa ditulis:", e);
     }
+  }
+
+  function ubahCollapse(v: boolean) {
+    setCollapse(v);
+    try {
+      const raw = localStorage.getItem("tmj_settings");
+      const j = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      localStorage.setItem("tmj_settings", JSON.stringify({ ...j, collapse: v }));
+    } catch (e) {
+      console.warn("[layout] localStorage tidak bisa ditulis:", e);
+    }
+  }
+
+  function ubahView(nv: ViewKey) {
+    setView(nv);
+    setMenuOpen(false);
+    setRefreshKey((k) => k + 1);
   }
 
   async function keluarPengguna() {
@@ -162,6 +194,8 @@ export default function DashboardApp() {
   const waktuMuat = diperbarui
     ? diperbarui.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(/\./g, ":")
     : null;
+  const trenCetak: "naik" | "turun" | "datar" | null = belumMasak < totalMasak && totalCetak > 0 ? "naik" : belumMasak > totalMasak ? "turun" : totalCetak > 0 ? "datar" : null;
+  const trenSelesai: "naik" | "turun" | "datar" | null = totalCetak > 0 ? (totalMasak / totalCetak >= 0.8 ? "naik" : totalMasak / totalCetak >= 0.5 ? "datar" : "turun") : null;
 
   return (
     <div className={`min-h-screen transition-colors duration-500 ${dark ? "bg-pine-deep text-cream" : "bg-cream text-pine"}`}>
@@ -174,8 +208,20 @@ export default function DashboardApp() {
               onClick={() => setMenuOpen((v) => !v)}
               aria-label={menuOpen ? "Tutup menu" : "Buka menu"}
               aria-expanded={menuOpen}
+              aria-controls="navigasi-utama"
             >
-              ☰
+              {menuOpen ? <IconClose className="h-5 w-5" /> : <IconMenu className="h-5 w-5" />}
+            </button>
+            <button
+              className={`btn-press hidden h-10 w-10 place-items-center rounded-xl border lg:grid ${dark ? "border-cream/15 hover:bg-cream/10" : "border-line-strong bg-white hover:bg-cream"}`}
+              onClick={() => ubahCollapse(!collapse)}
+              aria-label={collapse ? "Perluas sidebar" : "Ciutkan sidebar"}
+              aria-expanded={!collapse}
+              aria-controls="navigasi-utama"
+            >
+              <span className={`transition-transform duration-300 ${collapse ? "rotate-180" : ""}`}>
+                <IconChevronRight className="h-5 w-5" />
+              </span>
             </button>
             <Logo />
             <span className="leading-tight">
@@ -209,40 +255,48 @@ export default function DashboardApp() {
         </div>
       </header>
 
-      <div className="mx-auto grid w-full max-w-[1200px] gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[228px_1fr]">
+      <div className={`mx-auto grid w-full max-w-[1200px] gap-5 px-4 py-5 sm:px-6 transition-all duration-500 ${collapse ? "lg:grid-cols-[76px_1fr]" : "lg:grid-cols-[228px_1fr]"}`}>
         {/* ===== sidebar ===== */}
         <aside className={`no-print ${menuOpen ? "block" : "hidden"} lg:block`}>
-          <nav className={`anim-rise overflow-hidden rounded-3xl border p-3 shadow-[0_16px_40px_rgba(20,52,43,0.08)] ${s.kartu} ${s.judul}`} aria-label="Navigasi utama">
+          <nav id="navigasi-utama" className={`overflow-hidden rounded-3xl border p-3 shadow-[0_16px_40px_rgba(20,52,43,0.08)] ${s.kartu} ${s.judul}`} aria-label="Navigasi utama">
             {NAV.map((n, i) => {
               const active = view === n.key;
               return (
                 <button
                   key={n.key}
-                  onClick={() => { setView(n.key); setMenuOpen(false); }}
+                  onClick={() => ubahView(n.key)}
                   aria-current={active ? "page" : undefined}
-                  className={`nav-item mb-1.5 flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left ${
+                  aria-label={`${n.label} — ${n.desc}`}
+                  title={collapse ? `${n.label} — ${n.desc}` : undefined}
+                  className={`nav-item mb-1.5 flex w-full items-center gap-3 rounded-2xl px-2 py-3 text-left sm:px-3 lg:px-4 ${
+                    collapse ? "lg:justify-center lg:px-0" : ""
+                  } ${
                     active ? "bg-pine text-cream shadow-md" : dark ? "text-cream/80 hover:bg-cream/10" : "text-pine/75 hover:bg-cream hover:text-pine"
                   }`}
-                  style={{ animationDelay: `${i * 60}ms` }}
+                  style={{ animationDelay: `${i * 70}ms`, animation: "tmj-sidebar-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both" }}
                 >
                   <span
-                    className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-[16px] transition-transform ${
+                    className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl transition-all duration-300 ${
                       active ? "scale-105 bg-brand text-white" : dark ? "bg-cream/10" : "border border-line bg-cream"
                     }`}
                   >
                     {n.icon}
                   </span>
-                  <span className="leading-tight">
+                  <span className={`leading-tight ${collapse ? "lg:hidden" : ""}`}>
                     <span className="block text-[13.5px] font-extrabold">{n.label}</span>
                     <span className={`block text-[11px] font-medium ${active ? "text-cream/65" : dark ? "text-cream/50" : "text-pine/55"}`}>{n.desc}</span>
                   </span>
-                  {active && <span className="ml-auto text-brand-soft">▸</span>}
+                  {active && !collapse && <IconChevronRight className="ml-auto h-4 w-4 shrink-0 text-brand-soft" />}
                 </button>
               );
             })}
 
             {/* Ringkasan nyata — sebelumnya angka 96/6 papan itu karangan */}
-            {ringkasan ? (
+            {collapse ? (
+              <p className={`mt-2 px-1 py-3 text-center text-[10px] font-bold tabular-nums ${s.redup}`}>
+                {formatRibuanRingkas(totalCetak)}
+              </p>
+            ) : ringkasan ? (
               <div className="relative mt-2 overflow-hidden rounded-2xl bg-pine p-4 text-cream">
                 <div className="dot-grid absolute inset-0" aria-hidden />
                 <p className="relative text-[12px] font-extrabold">
@@ -258,10 +312,11 @@ export default function DashboardApp() {
                   />
                 </div>
                 <button
-                  onClick={() => { setView("input"); setMenuOpen(false); }}
+                  onClick={() => ubahView("input")}
                   className="btn-press relative mt-3 h-9 w-full rounded-xl bg-brand text-[12px] font-bold text-white hover:bg-brand-deep"
                 >
-                  Lanjut input ▸
+                  Lanjut input
+                  <IconChevronRight className="ml-1 inline h-3.5 w-3.5" />
                 </button>
               </div>
             ) : (
@@ -275,7 +330,7 @@ export default function DashboardApp() {
 
         {/* ===== konten ===== */}
         <main className="min-w-0">
-          <div className="anim-rise mb-4 flex flex-wrap items-end justify-between gap-2">
+          <div className="anim-view mb-4 flex flex-wrap items-end justify-between gap-2">
             <div>
               <h1 className="text-[21px] font-extrabold tracking-tight sm:text-[24px]">{TITLES[view].t}</h1>
               <p className={`text-[12.5px] font-medium ${dark ? "text-cream/60" : "text-pine/60"}`}>{TITLES[view].s}</p>
@@ -297,12 +352,49 @@ export default function DashboardApp() {
           {view === "dashboard" && (
             <div className="anim-view" key="dash">
               <div className="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
-                <StatCard dark={dark} label="Cetakan tercatat" value={totalCetak} suffix="papan" delta={ringkasan ? `${totalCetak - totalMasak} belum masak` : "Belum ada data"} icon="▦" delay={0} accent />
-                <StatCard dark={dark} label="Sudah masak" value={totalMasak} suffix="papan" delta={ringkasan && totalCetak > 0 ? `${Math.round((totalMasak / totalCetak) * 100)}% selesai` : "—"} icon="♨" delay={80} />
-                <StatCard dark={dark} label="Belum masak" value={belumMasak} suffix="papan" delta={totalCetak > 0 ? `${Math.round((belumMasak / totalCetak) * 100)}% tertinggal` : "—"} icon="◷" delay={160} />
-                <StatCard dark={dark} label="Total pendapatan" value={Math.round((ringkasan?.total_pendapatan ?? 0) / 1000)} suffix="rb" delta={ringkasan?.total_pendapatan_rupiah ?? "—"} icon="Rp" delay={240} />
+                <StatCard
+                  dark={dark}
+                  label="Cetakan tercatat"
+                  value={totalCetak}
+                  suffix="papan"
+                  delta={ringkasan ? `${belumMasak} belum masak` : "Belum ada data"}
+                  icon={<IconTable className="h-[19px] w-[19px]" />}
+                  delay={0}
+                  accent
+                  tren={trenCetak}
+                />
+                <StatCard
+                  dark={dark}
+                  label="Sudah masak"
+                  value={totalMasak}
+                  suffix="papan"
+                  delta={ringkasan && totalCetak > 0 ? `${Math.round((totalMasak / totalCetak) * 100)}% selesai` : "—"}
+                  icon={<IconPot className="h-[19px] w-[19px]" />}
+                  delay={80}
+                  tren={trenSelesai}
+                />
+                <StatCard
+                  dark={dark}
+                  label="Belum masak"
+                  value={belumMasak}
+                  suffix="papan"
+                  delta={totalCetak > 0 ? `${Math.round((belumMasak / totalCetak) * 100)}% tertinggal` : "—"}
+                  icon={<IconClock className="h-[19px] w-[19px]" />}
+                  delay={160}
+                  tren={belumMasak > 0 && totalCetak > 0 ? "turun" : totalCetak > 0 ? "datar" : null}
+                />
+                <StatCard
+                  dark={dark}
+                  label="Total pendapatan"
+                  value={Math.round((ringkasan?.total_pendapatan ?? 0) / 1000)}
+                  suffix="rb"
+                  delta={ringkasan?.total_pendapatan_rupiah ?? "—"}
+                  icon={<span className="text-[13px] font-extrabold tracking-tight">Rp</span>}
+                  delay={240}
+                  tren={totalCetak > 0 ? "naik" : null}
+                />
               </div>
-              <DashboardView onToast={onToast} dark={dark} />
+              <DashboardView dark={dark} />
             </div>
           )}
           {view === "input" && (

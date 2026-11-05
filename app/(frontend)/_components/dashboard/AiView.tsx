@@ -3,7 +3,16 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { formatRibuan, type Prediksi } from "./data";
-import { IconAlert, IconHistory } from "./icons";
+import { IconAlert, IconBulb, IconCopy, IconFactory, IconHistory, IconLock, IconChevronRight } from "./icons";
+
+function IconSparklesGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
+      <path d="m5 3 1.5 4.5L3 9l3.5 1.5L8 15l1.5-4.5L13 9 9.5 7.5Z" />
+      <path d="m18 14 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z" />
+    </svg>
+  );
+}
 import { skin } from "./theme";
 
 /* ---------- Bentuk respons server (lihat app/(backend)/api/ai/prediksi/route.ts) ---------- */
@@ -279,7 +288,9 @@ export default function AiView({
         <div className="relative mx-auto mb-4 grid h-16 w-16 place-items-center" aria-hidden>
           <span className="absolute inset-0 rounded-2xl border border-cream/15" />
           <span className="absolute inset-0 rounded-2xl border border-transparent border-t-brand" style={{ animation: "tmj-spin-slow 5s linear infinite" }} />
-          <span className="grid h-11 w-11 place-items-center rounded-xl bg-brand text-[22px] shadow-lg" style={{ animation: "tmj-float-soft 3.2s ease-in-out infinite" }}>✦</span>
+          <span className="grid h-11 w-11 place-items-center rounded-xl bg-brand shadow-lg" style={{ animation: "tmj-float-soft 3.2s ease-in-out infinite" }}>
+            <IconSparklesGlyph />
+          </span>
         </div>
         <p className="relative text-[11px] font-bold tracking-[0.18em] text-brand-soft uppercase">Perkiraan produksi</p>
         <h2 className="relative mx-auto mt-1 max-w-[30ch] text-[19px] font-extrabold tracking-tight sm:text-[22px]">
@@ -292,7 +303,7 @@ export default function AiView({
           <button
             onClick={jalankan}
             disabled={jalan || st.fase === "memuat"}
-            className={`btn-press h-11 rounded-xl px-8 text-[13.5px] font-bold text-white shadow-[0_10px_26px_rgba(217,119,6,0.4)] ${jalan ? "cursor-wait bg-pine-soft" : "bg-brand hover:bg-brand-deep shimmer-wrap"}`}
+            className={`btn-press inline-flex h-11 items-center gap-2 rounded-xl px-8 text-[13.5px] font-bold text-white shadow-[0_10px_26px_rgba(217,119,6,0.4)] ${jalan ? "cursor-wait bg-pine-soft" : "bg-brand hover:bg-brand-deep shimmer-wrap"}`}
           >
             {jalan ? (
               <span className="flex items-center gap-2">
@@ -300,11 +311,15 @@ export default function AiView({
                 Menghitung… {progres}%
               </span>
             ) : (
-              "▶ Mulai Prediksi"
+              <>
+                <IconSparklesGlyph />
+                Mulai Prediksi
+              </>
             )}
           </button>
           {p && (
-            <button onClick={salinRingkasan} className="btn-press h-11 rounded-xl border border-cream/20 bg-cream/10 px-6 text-[13px] font-bold text-cream hover:bg-cream/15">
+            <button onClick={salinRingkasan} className="btn-press inline-flex h-11 items-center gap-2 rounded-xl border border-cream/20 bg-cream/10 px-6 text-[13px] font-bold text-cream hover:bg-cream/15">
+              <IconCopy className="h-4 w-4" />
               Salin ringkasan
             </button>
           )}
@@ -330,8 +345,9 @@ export default function AiView({
         {jalan ? (
           <div className="rounded-2xl border border-line bg-pine-deep p-5 font-mono text-[12px] leading-6 text-cream/85">
             {LOGS.slice(0, logIdx + 1).map((l, i) => (
-              <p key={l} className="anim-fade" style={{ animationDelay: `${i * 60}ms` }}>
-                <span className="text-brand">▸</span> {l}
+              <p key={l} className="anim-fade flex items-center gap-2" style={{ animationDelay: `${i * 60}ms` }}>
+                <IconChevronRight className="h-3.5 w-3.5 shrink-0 text-brand" />
+                {l}
                 {i === logIdx && <span className="ml-1 inline-block h-3.5 w-2 translate-y-0.5 bg-brand" style={{ animation: "tmj-blink 0.9s infinite" }} />}
               </p>
             ))}
@@ -347,7 +363,9 @@ export default function AiView({
           </div>
         ) : st.fase === "memuat" ? (
           <div role="status" className={`anim-fade grid gap-3 rounded-2xl border border-dashed p-6 text-center ${s.garis} ${s.panel}`}>
-            <p className="text-[26px]" aria-hidden>🏭</p>
+            <span className={`mx-auto grid h-12 w-12 place-items-center rounded-2xl ${s.lencana}`} aria-hidden>
+              <IconFactory className="h-[22px] w-[22px]" />
+            </span>
             <p className={`text-[13.5px] font-bold ${s.judul}`}>Memuat estimasi dari server…</p>
             <p className={`mx-auto max-w-[46ch] text-[12.5px] leading-5 ${s.sub}`}>
               Menunggu balasan /api/ai/prediksi.
@@ -355,7 +373,9 @@ export default function AiView({
           </div>
         ) : st.fase === "belum-masuk" ? (
           <div role="alert" className="anim-fade grid gap-3 rounded-2xl border border-amber-400/60 bg-amber-50/70 p-6 text-center text-amber-950">
-            <p className={`mx-auto grid h-11 w-11 place-items-center rounded-xl text-[22px] ${s.lencana}`} aria-hidden>🔒</p>
+            <span className={`mx-auto grid h-11 w-11 place-items-center rounded-xl ${s.lencana}`} aria-hidden>
+              <IconLock className="h-5 w-5" />
+            </span>
             <p className="text-[13.5px] font-extrabold">Belum masuk</p>
             <p className="mx-auto max-w-[52ch] text-[12.5px] leading-5">
               Server menolak permintaan ini. Pesan aslinya: “{st.pesan}”
@@ -395,7 +415,9 @@ export default function AiView({
           </div>
         ) : st.fase === "kosong" ? (
           <div className={`anim-fade grid gap-3 rounded-2xl border border-dashed p-6 text-center ${s.garis} ${s.panel}`}>
-            <p className="text-[26px]" aria-hidden>🏭</p>
+            <span className={`mx-auto grid h-12 w-12 place-items-center rounded-2xl ${s.lencana}`} aria-hidden>
+              <IconFactory className="h-[22px] w-[22px]" />
+            </span>
             <p className={`text-[13.5px] font-bold ${s.judul}`}>Belum ada estimasi di server</p>
             <p className={`mx-auto max-w-[46ch] text-[12.5px] leading-5 ${s.sub}`}>
               Server menjawab tanpa data prediksi. Tekan “Mulai Prediksi” untuk meminta perhitungan baru.
@@ -527,7 +549,10 @@ export default function AiView({
 
             {/* saran statis — diberi label jelas supaya tidak disalaharti hasil hitungan */}
             <div className={`rounded-2xl border p-4 text-[12.5px] leading-5 ${s.garis} ${s.panel}`}>
-              <p className={`font-extrabold ${s.judul}`}>💡 Saran shift — catatan umum</p>
+              <p className={`flex items-center gap-2 font-extrabold ${s.judul}`}>
+                <IconBulb className="h-4 w-4 shrink-0" />
+                Saran shift — catatan umum
+              </p>
               <p className={`mt-1 ${s.sub}`}>{SARAN_SHIFT}</p>
               <p className={`mt-1.5 text-[11px] font-medium ${s.redup}`}>
                 Teks ini panduan umum, bukan hasil hitungan dari data pabrik Anda.

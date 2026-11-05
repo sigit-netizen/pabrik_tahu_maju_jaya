@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatRibuan } from "./data";
 import { skin } from "./theme";
+import { IconArrowDown, IconArrowUp, IconMinus } from "./icons";
 
 export function useCountUp(target: number, duration = 1100, start = true) {
   const [val, setVal] = useState(0);
@@ -22,6 +23,8 @@ export function useCountUp(target: number, duration = 1100, start = true) {
   return val;
 }
 
+export type TrenArah = "naik" | "turun" | "datar" | null;
+
 export function StatCard({
   label,
   value,
@@ -31,6 +34,7 @@ export function StatCard({
   delay = 0,
   accent = false,
   dark = false,
+  tren = null,
 }: {
   label: string;
   value: number;
@@ -40,9 +44,13 @@ export function StatCard({
   delay?: number;
   accent?: boolean;
   dark?: boolean;
+  tren?: TrenArah;
 }) {
   const n = useCountUp(value);
   const s = skin(dark);
+  const arah = tren === "naik" || tren === "turun" || tren === "datar" ? tren : null;
+  const arahLabel =
+    arah === "naik" ? "naik" : arah === "turun" ? "turun" : arah === "datar" ? "stabil" : null;
   return (
     <div
       className={`anim-rise card-lift group relative overflow-hidden rounded-2xl border p-4 sm:p-5 ${
@@ -59,7 +67,7 @@ export function StatCard({
         <div className="absolute -top-8 -right-8 h-24 w-24 rounded-full bg-brand/10 blur-2xl transition-transform duration-500 group-hover:scale-125" aria-hidden />
       )}
       <div className="relative flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className={`text-[11px] font-bold tracking-widest uppercase ${accent ? "text-cream/60" : s.redup}`}>
             {label}
           </p>
@@ -67,14 +75,24 @@ export function StatCard({
             {formatRibuan(n)}
             <span className={`ml-1 text-[12px] font-bold ${accent ? "text-brand-soft" : s.badgeHarga}`}>{suffix}</span>
           </p>
-          {/* delta netral — bukan hijau, supaya tidak menyesatkan saat angkanya turun */}
           <span
             className={`mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${
               accent ? "bg-cream/10 text-cream" : dark ? "bg-cream/10 text-cream/70" : "bg-cream-muted text-pine/70"
             }`}
           >
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />
-            {delta}
+            {arah === "naik" ? (
+              <IconArrowUp className="h-3 w-3 shrink-0" />
+            ) : arah === "turun" ? (
+              <IconArrowDown className="h-3 w-3 shrink-0" />
+            ) : arah === "datar" ? (
+              <IconMinus className="h-3 w-3 shrink-0" />
+            ) : (
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />
+            )}
+            <span>{delta}</span>
+            {arahLabel ? (
+              <span className="sr-only">({arahLabel})</span>
+            ) : null}
           </span>
         </div>
         <span

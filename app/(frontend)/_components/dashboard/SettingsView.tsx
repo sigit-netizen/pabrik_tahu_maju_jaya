@@ -23,12 +23,6 @@ type HargaCetak = {
   waktu_wib?: string;
 };
 
-const KARTU = "overflow-hidden rounded-3xl border";
-const KEPALA = "flex items-center gap-3 border-b px-5 py-4 sm:px-6";
-const LABEL = "mb-1.5 block text-[11px] font-bold tracking-[0.12em] uppercase";
-const INPUT = "auth-input h-11 w-full rounded-xl border pl-10 text-[13.5px] font-semibold";
-
-const LABEL_SANDI = ["Belum diisi", "Lemah", "Cukup", "Kuat"];
 const PANJANG_MIN = 6;
 
 function formatRupiah(n: number) {
@@ -44,9 +38,9 @@ function formatRupiah(n: number) {
 function bacaNama(): string {
   try {
     const j = JSON.parse(localStorage.getItem("tmj_settings") || "{}") as { nama?: string };
-    return j.nama || "Pak Jaya — Kepala Produksi";
+    return typeof j.nama === "string" ? j.nama : "";
   } catch {
-    return "Pak Jaya — Kepala Produksi";
+    return "";
   }
 }
 
@@ -204,23 +198,27 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
     }
   }
 
+  const LABEL_SANDI = ["Belum diisi", "Lemah", "Cukup", "Kuat"];
+
   return (
-    <div className="anim-rise mx-auto w-full max-w-[600px] space-y-5">
+    <div className="anim-rise mx-auto w-full max-w-[600px] space-y-6">
       {/* ============ Profil & tampilan ============ */}
-      <section className={`${KARTU} ${s.kartu}`}>
-        <div className={`${KEPALA} ${s.garis} ${s.kepala}`}>
+      <section className="overflow-hidden rounded-3xl border">
+        <div className="flex items-center gap-3 border-b px-5 py-4 sm:px-6">
           <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${s.lencana}`}>
             <IconUser className="h-[18px] w-[18px]" />
           </span>
           <div className="min-w-0">
-            <h2 className={`text-[15px] font-extrabold tracking-tight ${s.judul}`}>Profil pencatat</h2>
-            <p className={`mt-0.5 text-[12px] font-medium ${s.sub}`}>Siapa yang mencatat dan tampilan yang dipakai</p>
+            <h2 className="text-[15px] font-extrabold tracking-tight">Profil pencatat</h2>
+            <p className="mt-0.5 text-[12px] font-medium">Siapa yang mencatat dan tampilan yang dipakai</p>
           </div>
         </div>
 
         <div className="space-y-5 p-5 sm:p-6">
           <div>
-            <label htmlFor="set-nama" className={`${LABEL} ${s.label}`}>Nama penanggung jawab</label>
+            <label htmlFor="set-nama" className="mb-1.5 block text-[11px] font-bold tracking-[0.12em] uppercase">
+              Nama penanggung jawab
+            </label>
             <div className="relative">
               <IconUser className={`pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 ${s.ikon}`} />
               <input
@@ -228,20 +226,20 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
                 value={nama}
                 onChange={(e) => setNama(e.target.value)}
                 maxLength={60}
-                className={`${INPUT} ${s.input} px-4`}
+                className={`auth-input h-11 w-full rounded-xl border pl-10 text-[13.5px] font-semibold px-4`}
                 placeholder="Nama penanggung jawab"
               />
             </div>
           </div>
 
-          <div className={`flex items-center justify-between gap-4 rounded-2xl border px-4 py-3.5 ${s.panel}`}>
+          <div className="flex items-center justify-between gap-4 rounded-xl border px-4 py-4">
             <div className="flex items-center gap-3">
               <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border ${s.chip} ${s.ikon}`}>
                 <IconDisplay className="h-[18px] w-[18px]" />
               </span>
               <div>
-                <p className={`text-[13px] font-extrabold ${s.judul}`}>Mode tampilan</p>
-                <p className={`text-[11.5px] font-medium ${s.sub}`}>
+                <p className="text-[13px] font-extrabold tracking-tight">Mode tampilan</p>
+                <p className="text-[11.5px] font-medium">
                   {dark ? "Kedai gelap — nyaman malam hari" : "Terang kedelai — nyaman area produksi"}
                 </p>
               </div>
@@ -262,8 +260,8 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
             </button>
           </div>
 
-          <div className={`flex flex-wrap items-center justify-between gap-3 border-t pt-5 ${s.garis}`}>
-            <p className={`text-[11.5px] font-medium ${s.sub}`}>Nama & mode disimpan di perangkat ini.</p>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-5">
+            <p className="text-[11.5px] font-medium">Nama & mode disimpan di perangkat ini.</p>
             <button
               onClick={apply}
               disabled={saving}
@@ -286,27 +284,29 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
       </section>
 
       {/* ============ Keamanan / ganti sandi ============ */}
-      <section className={`${KARTU} ${s.kartu}`}>
-        <div className={`${KEPALA} ${s.garis} ${s.kepala}`}>
+      <section className="overflow-hidden rounded-3xl border">
+        <div className="flex items-center gap-3 border-b px-5 py-4 sm:px-6">
           <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${s.lencana}`}>
             <IconLock className="h-[18px] w-[18px]" />
           </span>
           <div className="min-w-0">
-            <h2 className={`text-[15px] font-extrabold tracking-tight ${s.judul}`}>Ganti kata sandi</h2>
-            <p className={`mt-0.5 text-[12px] font-medium ${s.sub}`}>Masuk dengan akun admin, sandi lama tetap wajib</p>
+            <h2 className="text-[15px] font-extrabold tracking-tight">Ganti kata sandi</h2>
+            <p className="mt-0.5 text-[12px] font-medium">Masuk dengan akun admin, sandi lama tetap wajib</p>
           </div>
         </div>
 
         <div className="space-y-5 p-5 sm:p-6">
           {errorSandi && (
-            <div role="alert" className="flex items-start gap-2.5 rounded-2xl border border-red-300/60 bg-red-50/70 px-4 py-3">
+            <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-red-300/60 bg-red-50/70 px-4 py-3">
               <IconAlert className="mt-px h-4 w-4 shrink-0 text-red-600" />
               <p className="text-[12.5px] leading-5 font-medium text-red-800">{errorSandi}</p>
             </div>
           )}
 
           <div>
-            <label htmlFor="set-sandi-lama" className={`${LABEL} ${s.label}`}>Kata sandi saat ini</label>
+            <label htmlFor="set-sandi-lama" className="mb-1.5 block text-[11px] font-bold tracking-[0.12em] uppercase">
+              Kata sandi saat ini
+            </label>
             <div className="relative">
               <IconLock className={`pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 ${s.ikon}`} />
               <input
@@ -317,7 +317,7 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
                 maxLength={128}
                 autoComplete="current-password"
                 placeholder="Sandi yang dipakai sekarang"
-                className={`${INPUT} ${s.input} pr-20`}
+                className={`auth-input h-11 w-full rounded-xl border pr-20 text-[13.5px] font-semibold`}
               />
               <button
                 type="button"
@@ -330,7 +330,9 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
           </div>
 
           <div>
-            <label htmlFor="set-sandi-baru" className={`${LABEL} ${s.label}`}>Kata sandi baru</label>
+            <label htmlFor="set-sandi-baru" className="mb-1.5 block text-[11px] font-bold tracking-[0.12em] uppercase">
+              Kata sandi baru
+            </label>
             <div className="relative">
               <IconLock className={`pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 ${s.ikon}`} />
               <input
@@ -341,7 +343,7 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
                 maxLength={128}
                 autoComplete="new-password"
                 placeholder={`Minimal ${PANJANG_MIN} karakter`}
-                className={`${INPUT} ${s.input} pr-20`}
+                className={`auth-input h-11 w-full rounded-xl border pr-20 text-[13.5px] font-semibold`}
               />
               <button
                 type="button"
@@ -367,7 +369,9 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
           </div>
 
           <div>
-            <label htmlFor="set-sandi-ulang" className={`${LABEL} ${s.label}`}>Ulangi kata sandi baru</label>
+            <label htmlFor="set-sandi-ulang" className="mb-1.5 block text-[11px] font-bold tracking-[0.12em] uppercase">
+              Ulangi kata sandi baru
+            </label>
             <div className="relative">
               <IconCheck className={`pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 ${s.ikon}`} />
               <input
@@ -378,7 +382,7 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
                 maxLength={128}
                 autoComplete="new-password"
                 placeholder="Ketik ulang sandi baru"
-                className={`${INPUT} ${s.input} pl-10`}
+                className={`auth-input h-11 w-full rounded-xl border pl-10 text-[13.5px] font-semibold`}
                 aria-invalid={sandiUlang.length > 0 && sandiUlang !== sandiBaru}
               />
             </div>
@@ -387,7 +391,7 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
             )}
           </div>
 
-          <div className={`flex justify-end border-t pt-5 ${s.garis}`}>
+          <div className="flex justify-end border-t pt-5">
             <button
               onClick={simpanSandi}
               disabled={gantiSandi}
@@ -410,41 +414,43 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
       </section>
 
       {/* ============ Harga tahu per cetak ============ */}
-      <section className={`${KARTU} ${s.kartu}`}>
-        <div className={`${KEPALA} ${s.garis} ${s.kepala}`}>
+      <section className="overflow-hidden rounded-3xl border">
+        <div className="flex items-center gap-3 border-b px-5 py-4 sm:px-6">
           <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${s.lencana}`}>
             <IconTag className="h-[18px] w-[18px]" />
           </span>
           <div className="min-w-0">
-            <h2 className={`text-[15px] font-extrabold tracking-tight ${s.judul}`}>Harga tahu per cetak</h2>
-            <p className={`mt-0.5 text-[12px] font-medium ${s.sub}`}>Tarif yang dipakai menghitung pendapatan produksi</p>
+            <h2 className="text-[15px] font-extrabold tracking-tight">Harga tahu per cetak</h2>
+            <p className="mt-0.5 text-[12px] font-medium">Tarif yang dipakai menghitung pendapatan produksi</p>
           </div>
         </div>
 
         <div className="space-y-5 p-5 sm:p-6">
           {memuatHarga ? (
-            <div className={`rounded-2xl border px-4 py-4 ${s.panel}`} role="status">
-              <p className={`text-[10.5px] font-bold tracking-[0.14em] uppercase ${s.sub}`}>Harga saat ini</p>
-              <p className={`mt-1.5 text-[13px] font-medium ${s.sub}`}>Memuat…</p>
+            <div className="rounded-2xl border px-4 py-4" role="status" aria-label="Memuat harga saat ini">
+              <p className="text-[10.5px] font-bold tracking-[0.14em] uppercase">Harga saat ini</p>
+              <div className="shimmer-wrap mt-2 h-7 w-44 rounded-lg" aria-hidden />
+              <div className="shimmer-wrap mt-2 h-3 w-56 rounded-lg" aria-hidden />
+              <p className="mt-2 text-[12px] font-medium">Memuat…</p>
             </div>
           ) : (
-            <div className={`rounded-2xl border px-4 py-4 ${s.panel}`}>
-              <p className={`text-[10.5px] font-bold tracking-[0.14em] uppercase ${s.sub}`}>Harga saat ini</p>
+            <div className="rounded-2xl border px-4 py-4">
+              <p className="text-[10.5px] font-bold tracking-[0.14em] uppercase">Harga saat ini</p>
               {hargaAktif ? (
                 <>
-                  <p className={`mt-1.5 text-[28px] leading-none font-extrabold tracking-tight ${s.judul}`}>
+                  <p className="mt-1.5 text-[28px] leading-none font-extrabold tracking-tight">
                     {hargaAktif.harga_rupiah ?? formatRupiah(hargaAktif.harga)}
                   </p>
-                  <p className={`mt-1.5 text-[11.5px] font-medium ${s.sub}`}>
+                  <p className="mt-1.5 text-[11.5px] font-medium">
                     Berlaku sejak {hargaAktif.waktu_wib ?? hargaAktif.berlaku_sejak ?? "-"}
                   </p>
                 </>
               ) : errorHarga ? (
-                <p className={`mt-1.5 text-[13px] font-semibold ${s.sub}`}>
+                <p className="mt-1.5 text-[13px] font-semibold">
                   Harga tidak dapat dimuat. Masuk terlebih dahulu, lalu buka ulang halaman ini.
                 </p>
               ) : (
-                <p className={`mt-1.5 text-[13px] font-semibold ${s.sub}`}>
+                <p className="mt-1.5 text-[13px] font-semibold">
                   Belum ada harga. Tetapkan harga pertama agar pencatatan bisa dihitung.
                 </p>
               )}
@@ -452,14 +458,16 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
           )}
 
           {errorHarga && (
-            <div role="alert" className="flex items-start gap-2.5 rounded-2xl border border-red-300/60 bg-red-50/70 px-4 py-3">
+            <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-red-300/60 bg-red-50/70 px-4 py-3">
               <IconAlert className="mt-px h-4 w-4 shrink-0 text-red-600" />
               <p className="text-[12.5px] leading-5 font-medium text-red-800">{errorHarga}</p>
             </div>
           )}
 
           <div>
-            <label htmlFor="set-harga" className={`${LABEL} ${s.label}`}>Harga baru per cetak (Rp)</label>
+            <label htmlFor="set-harga" className="mb-1.5 block text-[11px] font-bold tracking-[0.12em] uppercase">
+              Harga baru per cetak (Rp)
+            </label>
             <div className="relative">
               <IconTag className={`pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 ${s.ikon}`} />
               <input
@@ -471,15 +479,17 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
                 value={inputHarga}
                 onChange={(e) => setInputHarga(e.target.value)}
                 placeholder="Contoh: 2500"
-                className={`${INPUT} ${s.input} px-4`}
+                className={`auth-input h-11 w-full rounded-xl border pl-10 text-[13.5px] font-semibold`}
                 aria-describedby="set-harga-bantuan"
               />
             </div>
-            <p id="set-harga-bantuan" className={`mt-2 text-[11.5px] font-medium ${s.sub}`}>
+            <p id="set-harga-bantuan" className="mt-2 text-[11.5px] font-medium">
               {nominalValid ? (
                 <>
-                  Perkiraan: 50 cetak = <span className={`font-bold ${s.judul}`}>{formatRupiah(nominal * 50)}</span> · 100 cetak ={" "}
-                  <span className={`font-bold ${s.judul}`}>{formatRupiah(nominal * 100)}</span>
+                  Perkiraan: 50 cetak ={" "}
+                  <span className="font-bold">{formatRupiah(nominal * 50)}</span>
+                  · 100 cetak ={" "}
+                  <span className="font-bold">{formatRupiah(nominal * 100)}</span>
                 </>
               ) : (
                 "Harga terbaru langsung dipakai pencatatan berikutnya. Harga lama tetap tersimpan sebagai riwayat."
@@ -487,7 +497,7 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
             </p>
           </div>
 
-          <div className={`flex justify-end border-t pt-5 ${s.garis}`}>
+          <div className="flex justify-end border-t pt-5">
             <button
               onClick={simpanHargaCetak}
               disabled={simpanHarga || memuatHarga}
@@ -510,9 +520,9 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
           {riwayatHarga.length > 0 && (
             <div>
               <div className="mb-2.5 flex items-center gap-2">
-                <p className={`text-[11px] font-bold tracking-[0.14em] uppercase ${s.label}`}>Riwayat harga</p>
+                <p className="text-[11px] font-bold tracking-[0.14em] uppercase">Riwayat harga</p>
               </div>
-              <ul className={`divide-y overflow-hidden rounded-2xl border ${dark ? "divide-cream/10 border-cream/10" : "divide-line border-line"}`}>
+              <ul className="divide-y overflow-hidden rounded-2xl border">
                 {riwayatHarga.slice(0, 5).map((h, idx) => (
                   <li key={h.id} className={`flex items-center justify-between gap-3 px-4 py-3 ${idx === 0 ? s.chipAktif : s.chip}`}>
                     <span className="flex items-center gap-2.5">
@@ -525,7 +535,7 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
                         </span>
                       )}
                     </span>
-                    <span className={`shrink-0 text-[11px] font-medium ${s.sub}`}>{h.waktu_wib ?? h.berlaku_sejak ?? "-"}</span>
+                    <span className={`shrink-0 text-[11px] font-medium`}>{h.waktu_wib ?? h.berlaku_sejak ?? "-"}</span>
                   </li>
                 ))}
               </ul>

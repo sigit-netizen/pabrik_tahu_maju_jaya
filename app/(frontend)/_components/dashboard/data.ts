@@ -45,6 +45,7 @@ export type BarisProduksi = {
   jumlah_masak: number;
   jumlah_pendapatan: number;
   jumlah_pendapatan_rupiah: string;
+  nama?: string;
 };
 
 export type Pagination = {

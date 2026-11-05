@@ -10,7 +10,15 @@ import {
   type KeyboardEvent as KeyboardEventReact,
 } from "react";
 import ProdChart from "./ProdChart";
-import { IconAlert } from "./icons";
+import { StatCard } from "./StatCard";
+import {
+  IconAlert,
+  IconPrint,
+  IconSearch,
+  IconTable,
+  IconPot,
+  IconClock,
+} from "./icons";
 import { skin } from "./theme";
 import {
   formatRibuan,
@@ -19,7 +27,6 @@ import {
   type BarisProduksi,
   type DashboardData,
   type Pagination,
-  type TrenProduksi,
 } from "./data";
 
 type Mode = "harian" | "mingguan" | "bulanan";
@@ -73,7 +80,7 @@ function labelBulan(kunci: string) {
 }
 
 /** Agregasi tren dari API sesuai rentang tab yang dipilih. */
-function agregatTren(tren: TrenProduksi[], mode: Mode): { labels: string[]; values: number[] } {
+function agregatTren(tren: Array<{ tanggal: string; jumlah_cetak: number }>, mode: Mode): { labels: string[]; values: number[] } {
   if (tren.length === 0) return { labels: [], values: [] };
   if (mode === "harian") {
     return {
@@ -145,9 +152,7 @@ function KotakGagal({
   return (
     <div
       role="alert"
-      className={`flex flex-wrap items-start gap-3 rounded-2xl border px-4 py-3.5 ${
-        dark ? "border-red-400/35 bg-red-400/10" : "border-red-300/60 bg-red-50/70"
-      }`}
+      className={`flex flex-wrap items-start gap-3 rounded-2xl border px-4 py-3.5 ${dark ? "border-red-400/35 bg-red-400/10" : "border-red-300/60 bg-red-50/70"}`}
     >
       <IconAlert className={`mt-px h-4 w-4 shrink-0 ${dark ? "text-red-300" : "text-red-600"}`} />
       <p className={`min-w-0 flex-1 text-[12.5px] leading-5 font-semibold ${dark ? "text-red-200" : "text-red-800"}`}>
@@ -156,9 +161,7 @@ function KotakGagal({
       <button
         type="button"
         onClick={onCoba}
-        className={`btn-press h-8 shrink-0 rounded-lg border px-3 text-[12px] font-bold ${
-          dark ? "border-red-300/40 text-red-200 hover:bg-red-400/10" : "border-red-300 text-red-700 hover:bg-red-100"
-        }`}
+        className={`btn-press h-8 shrink-0 rounded-lg border px-3 text-[12px] font-bold ${dark ? "border-red-300/40 text-red-200 hover:bg-red-400/10" : "border-red-300 text-red-700 hover:bg-red-100"}`}
       >
         {cobaLabel}
       </button>
@@ -323,7 +326,7 @@ function ModalRekap({
 
 /* ---------- view utama ---------- */
 
-export default function DashboardView({ onToast, dark }: { onToast: (m: string) => void; dark: boolean }) {
+export default function DashboardView({ dark }: { dark: boolean }) {
   const s = skin(dark);
   const [mode, setMode] = useState<Mode>("mingguan");
   const [q, setQ] = useState("");
@@ -419,7 +422,40 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
 
   const ringkasan = dash?.ringkasan ?? null;
   const tren = useMemo(() => dash?.grafik_tren_produksi ?? [], [dash]);
-  const seri = useMemo(() => agregatTren(tren, mode), [tren, mode]);
+
+  /* Susun tren dari baris rekap yang sudah dimuat (seadanya), tanpa
+     mengharuskan minimal 7 hari. Ini adalah sumber grafik utama supaya
+     grafik selalu mencerminkan tabel rekap di bawahnya. */
+  const trenDariBaris = useMemo(() => {
+    const byDate = new Map<string, number>();
+    for (const r of baris) {
+      const tgl = r.tanggal;
+      byDate.set(tgl, (byDate.get(tgl) || 0) + (Number(r.jumlah_cetak) || 0));
+    }
+    return [...byDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([tanggal, jumlah_cetak]) => ({ tanggal, jumlah_cetak }));
+  }, [baris]);
+
+  /* Gabungkan data API (grafik_tren_produksi) dengan data rekap, tanpa
+     duplikasi tanggal. Data rekap prioritas tinggi karena relevan dengan
+     tabel di bawah. */
+  const trenEfektif = useMemo(() => {
+    /* Jika ada data rekap dengan cetakan > 0, pakai itu (seadanya, tanpa
+       memaksa 7 hari terakhir dari API). Jika tidak, fall back ke data API. */
+    const adaDataRiil = trenDariBaris.some((t) => (Number(t.jumlah_cetak) || 0) > 0);
+    if (adaDataRiil) return trenDariBaris;
+
+    const byDate = new Map<string, number>();
+    for (const t of tren) {
+      byDate.set(t.tanggal, (byDate.get(t.tanggal) || 0) + (Number(t.jumlah_cetak) || 0));
+    }
+    return [...byDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([tanggal, jumlah_cetak]) => ({ tanggal, jumlah_cetak }));
+  }, [tren, trenDariBaris]);
+
+  const seri = useMemo(() => agregatTren(trenEfektif, mode), [trenEfektif, mode]);
 
   const barisTampil = useMemo(() => {
     const kunci = q.trim().toLowerCase();
@@ -440,13 +476,142 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
   const totalCetakApi = Number(ringkasan?.total_cetak) || 0;
   const totalMasakApi = Number(ringkasan?.total_masak) || 0;
   const sisaApi = Math.max(0, totalCetakApi - totalMasakApi);
+  const belumMasak = sisaApi;
   const persenMasak = totalCetakApi > 0 ? Math.round((totalMasakApi / totalCetakApi) * 100) : 0;
-  const pendapatan = ringkasan?.total_pendapatan_rupiah || rupiah(Number(ringkasan?.total_pendapatan) || 0);
+  const trenCetak: "naik" | "turun" | "datar" | null = totalCetakApi > 0 ? (totalMasakApi / totalCetakApi >= 0.8 ? "naik" : totalMasakApi / totalCetakApi >= 0.5 ? "datar" : "turun") : null;
+  const trenSelesai: "naik" | "turun" | "datar" | null = totalCetakApi > 0 ? (totalMasakApi / totalCetakApi >= 0.8 ? "naik" : totalMasakApi / totalCetakApi >= 0.5 ? "datar" : "turun") : null;
   const prediksi = dash?.prediksi_mingguan ?? null;
   const ketCetak =
-    tren.length > 0
-      ? `Rata-rata harian ${formatRibuan(Math.round(totalCetakApi / tren.length))} papan`
+    trenEfektif.length > 0
+      ? `Rata-rata harian ${formatRibuan(Math.round(totalCetakApi / trenEfektif.length))} papan`
       : "Ringkasan seluruh catatan tersimpan";
+  const pendapatan = ringkasan?.total_pendapatan_rupiah || rupiah(Number(ringkasan?.total_pendapatan) || 0);
+
+  function cetakRekap() {
+    const win = window.open("", "_blank");
+    if (!win) return;
+    const html = `
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>List Rekap Produksi — Pabrik Tahu Maju Jaya</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 10pt; color: #14342b; margin: 0; }
+  .header { border-bottom: 3px solid #14342b; padding-bottom: 8px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: flex-start; }
+  .header h1 { margin: 0; font-size: 18pt; font-weight: 900; letter-spacing: -0.02em; }
+  .header .sub { font-size: 8pt; color: #6b7c8e; margin-top: 2px; }
+  .header .meta { text-align: right; font-size: 8pt; color: #6b7c8e; line-height: 1.4; }
+  .kpi { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+  .kpi > div { border: 1px solid rgba(20,52,43,0.14); border-radius: 10px; padding: 10px 12px; background: #fff; }
+  .kpi .lbl { font-size: 7pt; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; color: #9aa8b5; margin-bottom: 4px; }
+  .kpi .val { font-size: 14pt; font-weight: 900; color: #14342b; }
+  .kpi .ket { font-size: 7pt; color: #6b7c8e; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 8pt; }
+  th { background: #14342b; color: #f6f1e7; font-weight: 900; text-align: left; padding: 6px 8px; font-size: 7pt; text-transform: uppercase; letter-spacing: 0.05em; }
+  td { padding: 5px 8px; border-bottom: 1px solid rgba(20,52,43,0.08); vertical-align: top; }
+  tr:nth-child(even) td { background: #f0eadb; }
+  tr.nomor { font-weight: 900; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .total-row { background: #14342b !important; color: #f6f1e7; font-weight: 900; }
+  .total-row td { color: #f6f1e7; border-color: rgba(246,241,231,0.3); }
+  .status-selesai { color: #059669; font-weight: 800; }
+  .status-proses { color: #b45309; font-weight: 800; }
+  .status-ditekan { color: #6b7c8e; font-weight: 800; }
+  .footer { margin-top: 18px; border-top: 1px solid rgba(20,52,43,0.14); padding-top: 8px; font-size: 7pt; color: #6b7c8e; display: flex; justify-content: space-between; }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .no-print { display: none !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>Pabrik Tahu Maju Jaya</h1>
+      <div class="sub">Pencatatan Produksi &amp; Penjualan — Kediri, Jawa Timur</div>
+    </div>
+    <div class="meta">
+      <div><strong>List Rekap Produksi</strong></div>
+      <div>Tanggal cetak: ${new Date().toLocaleString("id-ID")}</div>
+      <div>Mode: ${mode.charAt(0).toUpperCase() + mode.slice(1)}</div>
+    </div>
+  </div>
+
+  <div class="kpi">
+    <div>
+      <div class="lbl">Total Cetakan</div>
+      <div class="val">${formatRibuan(totalCetakApi)} papan</div>
+      <div class="ket">${ketCetak}</div>
+    </div>
+    <div>
+      <div class="lbl">Sudah Masak</div>
+      <div class="val">${formatRibuan(totalMasakApi)} papan</div>
+      <div class="ket">${persenMasak}% dari cetakan</div>
+    </div>
+    <div>
+      <div class="lbl">Antre Masak</div>
+      <div class="val">${formatRibuan(sisaApi)} papan</div>
+      <div class="ket">Cetak minus masak</div>
+    </div>
+    <div>
+      <div class="lbl">Pendapatan</div>
+      <div class="val">${pendapatan}</div>
+      <div class="ket">${ringkasan?.status_pabrik ?? "Status tidak dilaporkan"}</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:6%">ID</th>
+        <th style="width:22%">Tanggal / Waktu</th>
+        <th style="width:12%" class="text-right">Cetak</th>
+        <th style="width:12%" class="text-right">Masak</th>
+        <th style="width:12%" class="text-right">Sisa</th>
+        <th style="width:12%" class="text-right">Pendapatan</th>
+        <th style="width:16%">Status</th>
+        <th style="width:20%">Pelanggan</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${barisUntukCetak.map((r) => `
+      <tr>
+        <td class="nomor">${r.id}</td>
+        <td>${r.tanggal}<br/><span style="font-size:6.5pt;color:#6b7c8e">${r.waktu_wib ?? "-"}</span></td>
+        <td class="text-right">${formatRibuan(r.jumlah_cetak)}</td>
+        <td class="text-right">${formatRibuan(r.jumlah_masak)}</td>
+        <td class="text-right">${formatRibuan(r.jumlah_cetak - r.jumlah_masak)}</td>
+        <td class="text-right">${r.jumlah_pendapatan_rupiah}</td>
+        <td><span class="status-${statusRekap(r).toLowerCase()}">${statusRekap(r)}</span></td>
+        <td>${r.nama ?? "-"}</td>
+      </tr>
+      `).join("")}
+      <tr class="total-row">
+        <td colspan="2">Total tampil (${barisUntukCetak.length} baris)</td>
+        <td class="text-right">${formatRibuan(totalCetakCetak)}</td>
+        <td class="text-right">${formatRibuan(totalMasakCetak)}</td>
+        <td class="text-right">${formatRibuan(totalCetakCetak - totalMasakCetak)}</td>
+        <td class="text-right">${formatRibuan(totalPendapatanCetak)}</td>
+        <td></td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="footer">
+    <div>Dokumen internal Pabrik Tahu Maju Jaya — ${barisTampil.length} baris</div>
+    <div>Dicetak ${new Date().toLocaleString("id-ID")}</div>
+  </div>
+  <script>window.print(); setTimeout(()=>window.close(), 500);</script>
+</body>
+</html>
+    `;
+    win.document.write(html);
+    win.document.close();
+  };
 
   function pindahTab(e: KeyboardEventReact<HTMLButtonElement>) {
     const ini = TABS.findIndex((t) => t.key === mode);
@@ -467,6 +632,30 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
   }, []);
 
   const gayaGrafik = dark ? GAYA_GRAFIK_GELAP : GAYA_GRAFIK_TERANG;
+
+  /* Filter data cetak sesuai mode yang dipilih di grafik. */
+  const now = new Date();
+  const barisUntukCetak = (() => {
+    if (mode === "bulanan") {
+      const sisa6Bulan = new Date(now);
+      sisa6Bulan.setMonth(sisa6Bulan.getMonth() - 5);
+      sisa6Bulan.setDate(1);
+      return baris.filter((r: BarisProduksi) => r.tanggal >= sisa6Bulan.toISOString().slice(0, 10));
+    }
+    if (mode === "mingguan") {
+      const sisa7Minggu = new Date(now);
+      sisa7Minggu.setDate(sisa7Minggu.getDate() - 48);
+      return baris.filter((r: BarisProduksi) => r.tanggal >= sisa7Minggu.toISOString().slice(0, 10));
+    }
+    /* harian: 7 hari terakhir */
+    const sisa7Hari = new Date(now);
+    sisa7Hari.setDate(sisa7Hari.getDate() - 6);
+    return baris.filter((r: BarisProduksi) => r.tanggal >= sisa7Hari.toISOString().slice(0, 10));
+  })();
+
+  const totalCetakCetak = barisUntukCetak.reduce((a, b) => a + (Number(b.jumlah_cetak) || 0), 0);
+  const totalMasakCetak = barisUntukCetak.reduce((a, b) => a + (Number(b.jumlah_masak) || 0), 0);
+  const totalPendapatanCetak = barisUntukCetak.reduce((a, b) => a + (Number(b.jumlah_pendapatan) || 0), 0);
 
   return (
     <div className="space-y-5">
@@ -511,9 +700,7 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
                   tabIndex={terpilih ? 0 : -1}
                   onKeyDown={pindahTab}
                   onClick={() => setMode(t.key)}
-                  className={`tab-pill relative z-10 rounded-lg px-4 py-2 sm:px-6 ${
-                    terpilih ? (dark ? "text-pine-deep" : "text-cream") : s.hantu
-                  }`}
+                  className={`tab-pill relative z-10 rounded-lg px-4 py-2 sm:px-6 ${terpilih ? (dark ? "text-pine-deep" : "text-cream") : s.hantu}`}
                 >
                   {t.label}
                 </button>
@@ -551,9 +738,7 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
               {dash?.is_mock_data && (
                 <div
                   role="status"
-                  className={`mb-4 flex items-start gap-2.5 rounded-2xl border px-4 py-3 ${
-                    dark ? "border-brand/40 bg-brand/10" : "border-amber-300/70 bg-amber-50/80"
-                  }`}
+                  className={`mb-4 flex items-start gap-2.5 rounded-2xl border px-4 py-3 ${dark ? "border-brand/40 bg-brand/10" : "border-amber-300/70 bg-amber-50/80"}`}
                 >
                   <IconAlert className={`mt-px h-4 w-4 shrink-0 ${dark ? "text-brand" : "text-amber-600"}`} />
                   <p className={`text-[12.5px] leading-5 font-semibold ${dark ? "text-cream/85" : "text-amber-900"}`}>
@@ -578,44 +763,65 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
           </div>
         ) : ringkasan ? (
           <div className="px-5 py-5 sm:px-6">
-            <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              {[
-                { label: "Total cetakan", nilai: formatRibuan(totalCetakApi), satuan: "papan", ket: ketCetak },
-                { label: "Sudah masak", nilai: formatRibuan(totalMasakApi), satuan: "papan", ket: `${persenMasak}% dari cetakan` },
-                { label: "Antre masak", nilai: formatRibuan(sisaApi), satuan: "papan", ket: "Cetak minus masak" },
-                { label: "Pendapatan", nilai: pendapatan, satuan: "", ket: ringkasan.status_pabrik ?? "Status tidak dilaporkan" },
-              ].map((k) => (
-                <div key={k.label} className={`rounded-2xl border px-4 py-3 ${s.panel}`}>
-                  <dt className={`text-[10.5px] font-bold tracking-[0.14em] uppercase ${s.sub}`}>{k.label}</dt>
-                  <dd className={`mt-1 text-[20px] leading-none font-extrabold tracking-tight tabular-nums ${s.judul}`}>
-                    {k.nilai}
-                    {k.satuan ? <span className={`ml-1 text-[11px] font-bold ${s.sub}`}>{k.satuan}</span> : null}
-                  </dd>
-                  <dd className={`mt-1.5 text-[11px] font-medium ${s.redup}`}>{k.ket}</dd>
-                </div>
-              ))}
-            </dl>
-            <p className={`mt-3 text-[11.5px] font-medium ${s.redup}`}>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <StatCard
+                dark={dark}
+                label="Total cetakan"
+                value={totalCetakApi}
+                suffix="papan"
+                icon={<IconTable className="h-[19px] w-[19px]" />}
+                delay={0}
+                accent
+                tren={trenCetak}
+                delta={belumMasak > 0 ? `${belumMasak} belum masak` : "Semua sudah masak"}
+              />
+              <StatCard
+                dark={dark}
+                label="Sudah masak"
+                value={totalMasakApi}
+                suffix="papan"
+                icon={<IconPot className="h-[19px] w-[19px]" />}
+                delay={80}
+                tren={trenSelesai}
+                delta={`${persenMasak}% dari cetakan`}
+              />
+              <StatCard
+                dark={dark}
+                label="Antre masak"
+                value={sisaApi}
+                suffix="papan"
+                icon={<IconClock className="h-[19px] w-[19px]" />}
+                delay={160}
+                tren={sisaApi > 0 ? "turun" : totalCetakApi > 0 ? "datar" : null}
+                delta={`${Math.round((sisaApi / totalCetakApi) * 100)}% tertinggal`}
+              />
+              <StatCard
+                dark={dark}
+                label="Total pendapatan"
+                value={Math.round(Number(ringkasan?.total_pendapatan ?? 0) / 1000)}
+                suffix="rb"
+                icon={<span className="text-[13px] font-extrabold tracking-tight">Rp</span>}
+                delay={240}
+                tren={totalCetakApi > 0 ? "naik" : null}
+                delta={ringkasan?.total_pendapatan_rupiah ?? "—"}
+              />
+            </div>
+            <p className={`mt-4 text-[11.5px] font-medium ${s.redup}`}>
               {ringkasan.harga_cetak_aktif
                 ? `Harga cetak aktif ${rupiah(Number(ringkasan.harga_cetak_aktif))} per papan`
                 : "Harga cetak aktif belum ditetapkan"}{" "}
               {prediksi
-                ? `• Prediksi ${tanggalPendek(prediksi.periode_mulai)}–${tanggalPendek(
-                    prediksi.periode_selesai,
-                  )}: ${formatRibuan(prediksi.estimasi_total_cetak)} papan`
+                ? `• Prediksi ${tanggalPendek(prediksi.periode_mulai)}–${tanggalPendek(prediksi.periode_selesai)}: ${formatRibuan(prediksi.estimasi_total_cetak)} papan`
                 : ""}
             </p>
           </div>
         ) : null}
 
         {/* toolbar filter + cetak */}
-        <div className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6">
           <div className="relative min-w-[210px] flex-1">
             <span className={`pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 ${s.ikon}`} aria-hidden>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-                <circle cx="11" cy="11" r="7" />
-                <path d="m20 20-3.5-3.5" />
-              </svg>
+              <IconSearch className="h-[15px] w-[15px]" />
             </span>
             <input
               value={q}
@@ -639,13 +845,11 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
             </button>
             <button
               type="button"
-              onClick={() => {
-                onToast("Membuka pratinjau cetak — gunakan Ctrl+P untuk mencetak.");
-                setShowRekap(true);
-              }}
+              onClick={cetakRekap}
               className="btn-press h-10 rounded-xl bg-brand px-5 text-[12.5px] font-bold text-white shadow-[0_8px_20px_rgba(217,119,6,0.3)] hover:bg-brand-deep"
             >
-              ⎙ Cetak
+              <IconPrint className="h-4 w-4" />
+              Cetak Rekap
             </button>
           </div>
         </div>
@@ -704,7 +908,13 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
                       Sisa
                     </th>
                     <th scope="col" className="px-4 py-3 text-right text-[11px] font-bold tracking-widest uppercase">
+                      Pendapatan
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-[11px] font-bold tracking-widest uppercase">
                       Status
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-[11px] font-bold tracking-widest uppercase">
+                      Pelanggan
                     </th>
                   </tr>
                 </thead>
@@ -723,28 +933,32 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
                       <td className="px-4 py-3 text-right font-bold tabular-nums">{formatRibuan(r.jumlah_cetak)}</td>
                       <td className={`px-4 py-3 text-right tabular-nums ${s.label}`}>{formatRibuan(r.jumlah_masak)}</td>
                       <td className="px-4 py-3 text-right tabular-nums">
-                        <span
-                          className={`font-bold ${r.jumlah_cetak - r.jumlah_masak > 10 ? s.badgeHarga : s.redup}`}
-                        >
+                        <span className={`font-bold ${r.jumlah_cetak - r.jumlah_masak > 10 ? s.badgeHarga : s.redup}`}>
                           {formatRibuan(r.jumlah_cetak - r.jumlah_masak)}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-right tabular-nums">{r.jumlah_pendapatan_rupiah}</td>
                       <td className="px-4 py-3 text-right">
                         <StatusPill status={statusRekap(r)} dark={dark} />
                       </td>
+                      <td className="px-4 py-3 text-[13px]">{r.nama ?? "-"}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className={`border-t-2 font-extrabold ${dark ? "border-cream/15 bg-pine-deep/60" : "border-pine/15 bg-cream/70"}`}>
                     <td colSpan={2} className="px-4 py-3 text-[12px] tracking-wide uppercase">
-                      Total tampil
+                      Total tampil ({barisTampil.length} baris)
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">{formatRibuan(totalCetak)}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{formatRibuan(totalMasak)}</td>
                     <td className={`px-4 py-3 text-right tabular-nums ${s.badgeHarga}`}>
                       {formatRibuan(totalCetak - totalMasak)}
                     </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {formatRibuan(barisTampil.reduce((a, b) => a + (Number(b.jumlah_pendapatan) || 0), 0))}
+                    </td>
+                    <td />
                     <td />
                   </tr>
                 </tfoot>
