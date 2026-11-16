@@ -9,8 +9,8 @@ import InputView from "./InputView";
 import SettingsView from "./SettingsView";
 import { StatCard } from "./StatCard";
 import { Logo } from "./Logo";
-import { IconClock, IconDashboard, IconGear, IconMenu, IconClose, IconChevronRight, IconPencil, IconSparkle, IconTable, IconPot } from "./icons";
-import { hariIniLabel, type DashboardData, type Pengguna, type RingkasanDashboard, type ViewKey } from "./data";
+import { IconDashboard, IconGear, IconMenu, IconClose, IconChevronRight, IconPencil, IconSparkle, IconTable } from "./icons";
+import { hariIniLabel, rupiah, type DashboardData, type Mode, type Pengguna, type RingkasanDashboard, type ViewKey } from "./data";
 import { skin } from "./theme";
 
 const NAV: { key: ViewKey; label: string; icon: React.ReactNode; desc: string }[] = [
@@ -55,6 +55,10 @@ export default function DashboardApp() {
   const [toastKey, setToastKey] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [mode, setMode] = useState<Mode>("mingguan");
+  /* Total cetakan dan pendapatan sesuai filter mode (dari DashboardView) */
+  const [totalCetakFilter, setTotalCetakFilter] = useState(0);
+  const [totalPendapatanFilter, setTotalPendapatanFilter] = useState(0);
 
   /* sesi */
   const [cekSesi, setCekSesi] = useState(true);
@@ -187,20 +191,21 @@ export default function DashboardApp() {
     );
   }
 
-  const totalCetak = ringkasan?.total_cetak ?? 0;
-  const totalMasak = ringkasan?.total_masak ?? 0;
-  const belumMasak = Math.max(0, totalCetak - totalMasak);
+  const totalCetak = (totalCetakFilter || ringkasan?.total_cetak) ?? 0;
+  /* Total pendapatan = total cetakan × harga cetak aktif. Sama dengan kolom
+     "Total Harga" di tabel rekap, supaya kartu KPI dan tabel tidak beda
+     sumber angka. */
+  const totalPendapatanCetak = (totalPendapatanFilter || totalCetak * (Number(ringkasan?.harga_cetak_aktif) || 0)) ?? 0;
   const inisial = (pengguna?.username || pengguna?.email || "?").trim().charAt(0).toUpperCase();
   const waktuMuat = diperbarui
     ? diperbarui.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(/\./g, ":")
     : null;
-  const trenCetak: "naik" | "turun" | "datar" | null = belumMasak < totalMasak && totalCetak > 0 ? "naik" : belumMasak > totalMasak ? "turun" : totalCetak > 0 ? "datar" : null;
-  const trenSelesai: "naik" | "turun" | "datar" | null = totalCetak > 0 ? (totalMasak / totalCetak >= 0.8 ? "naik" : totalMasak / totalCetak >= 0.5 ? "datar" : "turun") : null;
+  const trenCetak: "naik" | "turun" | "datar" | null = totalCetak > 0 ? "naik" : null;
 
   return (
     <div className={`min-h-screen transition-colors duration-500 ${dark ? "bg-pine-deep text-cream" : "bg-cream text-pine"}`}>
       {/* ===== header ===== */}
-      <header className={`no-print sticky top-0 z-30 border-b backdrop-blur-xl ${dark ? "border-cream/10 bg-pine-deep/85" : "border-line bg-cream/85"}`}>
+      <header className={`no-print sticky top-0 z-50 border-b backdrop-blur-xl ${dark ? "border-cream/10 bg-pine-deep/85" : "border-line bg-cream/85"}`}>
         <div className="mx-auto flex h-[64px] w-full max-w-[1200px] items-center justify-between gap-3 px-4 sm:px-6">
           <div className="flex items-center gap-3">
             <button
@@ -255,10 +260,44 @@ export default function DashboardApp() {
         </div>
       </header>
 
+      {/* Tombol menu floating — selalu terlihat di mobile, bisa diklik dari mana saja */}
+      <button
+        type="button"
+        onClick={() => setMenuOpen((v) => !v)}
+        aria-label={menuOpen ? "Tutup menu" : "Buka menu"}
+        aria-expanded={menuOpen}
+        className={`btn-press fixed bottom-6 right-6 z-50 h-12 w-12 rounded-full border bg-pine text-cream shadow-xl transition-transform ${menuOpen ? "rotate-90" : ""} lg:hidden`}
+      >
+        {menuOpen ? <IconClose className="h-6 w-6" /> : <IconMenu className="h-6 w-6" />}
+      </button>
+
       <div className={`mx-auto grid w-full max-w-[1200px] gap-5 px-4 py-5 sm:px-6 transition-all duration-500 ${collapse ? "lg:grid-cols-[76px_1fr]" : "lg:grid-cols-[228px_1fr]"}`}>
         {/* ===== sidebar ===== */}
-        <aside className={`no-print ${menuOpen ? "block" : "hidden"} lg:block`}>
-          <nav id="navigasi-utama" className={`overflow-hidden rounded-3xl border p-3 shadow-[0_16px_40px_rgba(20,52,43,0.08)] ${s.kartu} ${s.judul}`} aria-label="Navigasi utama">
+        <aside className={`no-print fixed inset-0 z-40 flex flex-col ${menuOpen ? "block" : "hidden"} lg:static lg:block lg:inset-auto lg:flex-row lg:h-auto lg:max-w-none lg:shadow-none lg:border-0 lg:rounded-none lg:bg-transparent lg:p-0`}>
+          {/* Overlay backdrop — klik di luar untuk tutup (mobile) */}
+          {menuOpen && !collapse && (
+            <button
+              type="button"
+              onClick={() => setMenuOpen(false)}
+              aria-label="Tutup menu"
+              className="absolute inset-0 z-0 bg-pine-deep/60 backdrop-blur-sm lg:hidden"
+            />
+          )}
+          <nav id="navigasi-utama" className={`relative z-10 w-full max-w-xs overflow-y-auto h-full bg-pine-deep border-r border-cream/10 shadow-2xl ${s.kartu} lg:overflow-visible lg:h-auto lg:max-w-none lg:rounded-3xl lg:border lg:shadow-[0_16px_40px_rgba(20,52,43,0.08)] lg:bg-transparent lg:w-auto lg:z-0`} aria-label="Navigasi utama">
+            {/* Drawer header — tombol tutup + logo (mobile only) */}
+            {menuOpen && (
+              <div className="flex items-center justify-between px-4 py-3 border-b border-cream/10 lg:hidden">
+                <p className="text-[13px] font-extrabold tracking-tight text-cream">Menu</p>
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen(false)}
+                  aria-label="Tutup menu"
+                  className="h-8 w-8 rounded-full border border-cream/20 bg-cream/5 text-cream hover:bg-cream/10"
+                >
+                  <IconClose className="h-5 w-5" />
+                </button>
+              </div>
+            )}
             {NAV.map((n, i) => {
               const active = view === n.key;
               return (
@@ -303,14 +342,8 @@ export default function DashboardApp() {
                   Total {totalCetak.toLocaleString("id-ID")} papan
                 </p>
                 <p className="relative mt-1 text-[11.5px] leading-4 text-cream/65">
-                  {belumMasak > 0 ? `${belumMasak} papan belum masak.` : "Semua papan hari ini sudah masak."}
+                  Total cetakan hari ini.
                 </p>
-                <div className="relative mt-3 h-2 overflow-hidden rounded-full bg-cream/15">
-                  <div
-                    className="h-full rounded-full bg-brand transition-[width] duration-500"
-                    style={{ width: `${totalCetak > 0 ? Math.round((totalMasak / totalCetak) * 100) : 0}%` }}
-                  />
-                </div>
                 <button
                   onClick={() => ubahView("input")}
                   className="btn-press relative mt-3 h-9 w-full rounded-xl bg-brand text-[12px] font-bold text-white hover:bg-brand-deep"
@@ -351,13 +384,13 @@ export default function DashboardApp() {
 
           {view === "dashboard" && (
             <div className="anim-view" key="dash">
-              <div className="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
+              <div className="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-2">
                 <StatCard
                   dark={dark}
                   label="Cetakan tercatat"
                   value={totalCetak}
                   suffix="papan"
-                  delta={ringkasan ? `${belumMasak} belum masak` : "Belum ada data"}
+                  delta={ringkasan ? `${totalCetak} papan` : "Belum ada data"}
                   icon={<IconTable className="h-[19px] w-[19px]" />}
                   delay={0}
                   accent
@@ -365,36 +398,24 @@ export default function DashboardApp() {
                 />
                 <StatCard
                   dark={dark}
-                  label="Sudah masak"
-                  value={totalMasak}
-                  suffix="papan"
-                  delta={ringkasan && totalCetak > 0 ? `${Math.round((totalMasak / totalCetak) * 100)}% selesai` : "—"}
-                  icon={<IconPot className="h-[19px] w-[19px]" />}
-                  delay={80}
-                  tren={trenSelesai}
-                />
-                <StatCard
-                  dark={dark}
-                  label="Belum masak"
-                  value={belumMasak}
-                  suffix="papan"
-                  delta={totalCetak > 0 ? `${Math.round((belumMasak / totalCetak) * 100)}% tertinggal` : "—"}
-                  icon={<IconClock className="h-[19px] w-[19px]" />}
-                  delay={160}
-                  tren={belumMasak > 0 && totalCetak > 0 ? "turun" : totalCetak > 0 ? "datar" : null}
-                />
-                <StatCard
-                  dark={dark}
                   label="Total pendapatan"
-                  value={Math.round((ringkasan?.total_pendapatan ?? 0) / 1000)}
-                  suffix="rb"
-                  delta={ringkasan?.total_pendapatan_rupiah ?? "—"}
-                  icon={<span className="text-[13px] font-extrabold tracking-tight">Rp</span>}
+                  value={totalPendapatanCetak}
+                  valueDisplay={rupiah(totalPendapatanCetak)}
+                  suffix=""
+                  delta={rupiah(totalPendapatanCetak)}
                   delay={240}
-                  tren={totalCetak > 0 ? "naik" : null}
+                  tren={totalPendapatanCetak > 0 ? "naik" : null}
                 />
               </div>
-              <DashboardView dark={dark} />
+              <DashboardView
+                dark={dark}
+                mode={mode}
+                setMode={setMode}
+                onTotalsChange={(cetak, pendapatan) => {
+                  setTotalCetakFilter(cetak);
+                  setTotalPendapatanFilter(pendapatan);
+                }}
+              />
             </div>
           )}
           {view === "input" && (

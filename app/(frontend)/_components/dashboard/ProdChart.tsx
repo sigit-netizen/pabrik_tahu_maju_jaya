@@ -237,38 +237,6 @@ export default function ProdChart({ labels, values, mode }: { labels: string[]; 
         </div>
       )}
 
-      {/* alternatif teks: tabel data yang bisa dibaca tanpa melihat grafik */}
-      <details
-        className="mt-4 rounded-2xl border px-3.5 py-2.5"
-        style={{ borderColor: "var(--tj-garis, rgba(20,52,43,0.12))", color: "var(--tj-ink, #14342B)" }}
-      >
-        <summary className="cursor-pointer text-[11.5px] font-bold tracking-wide uppercase opacity-80">
-          Lihat data {mode} sebagai tabel
-        </summary>
-        <table className="mt-2.5 w-full text-left text-[12px]">
-          <caption className="sr-only">Jumlah cetakan tahu per {mode}</caption>
-          <thead>
-            <tr className="opacity-70">
-              <th scope="col" className="py-1.5 pr-3 font-bold">
-                Periode
-              </th>
-              <th scope="col" className="py-1.5 text-right font-bold">
-                Cetak (papan)
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {values.map((v, i) => (
-              <tr key={`${nama(i)}-${i}`} className="border-t" style={{ borderColor: "var(--tj-garis, rgba(20,52,43,0.1))" }}>
-                <th scope="row" className="py-1.5 pr-3 text-left font-semibold">
-                  {nama(i)}
-                </th>
-                <td className="py-1.5 text-right font-bold tabular-nums">{formatRibuan(v)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </details>
     </div>
   );
 }

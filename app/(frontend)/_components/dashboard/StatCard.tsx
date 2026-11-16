@@ -28,6 +28,7 @@ export type TrenArah = "naik" | "turun" | "datar" | null;
 export function StatCard({
   label,
   value,
+  valueDisplay,
   suffix,
   delta,
   icon,
@@ -38,9 +39,10 @@ export function StatCard({
 }: {
   label: string;
   value: number;
+  valueDisplay?: string;
   suffix: string;
   delta: string;
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   delay?: number;
   accent?: boolean;
   dark?: boolean;
@@ -72,7 +74,7 @@ export function StatCard({
             {label}
           </p>
           <p className="mt-1.5 text-[26px] font-extrabold tracking-tight tabular-nums sm:text-[30px]">
-            {formatRibuan(n)}
+            {valueDisplay ?? formatRibuan(n)}
             <span className={`ml-1 text-[12px] font-bold ${accent ? "text-brand-soft" : s.badgeHarga}`}>{suffix}</span>
           </p>
           <span
@@ -95,13 +97,15 @@ export function StatCard({
             ) : null}
           </span>
         </div>
-        <span
-          className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl text-[19px] transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-110 ${
-            accent ? "bg-brand text-white shadow-lg" : dark ? "border border-cream/10 bg-pine-deep text-cream/70" : "border border-line bg-cream text-pine"
-          }`}
-        >
-          {icon}
-        </span>
+        {icon && (
+          <span
+            className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl text-[19px] transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-110 ${
+              accent ? "bg-brand text-white shadow-lg" : dark ? "border border-cream/10 bg-pine-deep text-cream/70" : "border border-line bg-cream text-pine"
+            }`}
+          >
+            {icon}
+          </span>
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 export type ViewKey = "dashboard" | "input" | "ai" | "pengaturan";
+export type Mode = "harian" | "mingguan" | "bulanan";
 
 /* ---------- Bentuk respons API (dari route backend, bukan tebakan) ---------- */
 
@@ -46,6 +47,18 @@ export type BarisProduksi = {
   jumlah_pendapatan: number;
   jumlah_pendapatan_rupiah: string;
   nama?: string;
+};
+
+/** GET /api/produksi/input — rincian pesanan per pelanggan dalam satu tanggal. */
+export type RincianPelanggan = {
+  id: number | string;
+  nama: string;
+  jumlah_cetak: number;
+  jumlah_masak: number;
+  total: number;
+  created_at: string;
+  tanggal?: string;
+  waktu_wib?: string;
 };
 
 export type Pagination = {

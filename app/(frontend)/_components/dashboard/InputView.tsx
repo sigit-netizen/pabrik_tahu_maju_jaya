@@ -293,7 +293,8 @@ export default function InputView({ onToast, dark }: { onToast: (m: string) => v
                         inputMode="numeric"
                         min={0}
                         max={9999}
-                        value={r[k.kunci]}
+                        value={r[k.kunci] === 0 ? "" : r[k.kunci]}
+                        placeholder="0"
                         aria-label={`${k.label} baris ${i + 1}`}
                         onChange={(e) => ubahSel(r.id, { [k.kunci]: jadiAngka(e.target.value) })}
                         className={`${INPUT_ANGKA} ${s.input}`}

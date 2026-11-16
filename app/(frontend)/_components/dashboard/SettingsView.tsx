@@ -250,10 +250,10 @@ export default function SettingsView({ onToast, dark, setDark }: { onToast: (m: 
               aria-checked={dark}
               aria-label="Mode gelap"
               onClick={() => setDark(!dark)}
-              className={`relative h-8 w-[58px] shrink-0 rounded-full p-1 transition-colors duration-300 ${dark ? "bg-pine-deep ring-1 ring-cream/20" : "border border-line-strong bg-cream-dark"}`}
+              className={`relative h-8 w-[58px] shrink-0 rounded-full border transition-colors duration-300 ${dark ? "border-cream/20 bg-pine-deep" : "border-line-strong bg-cream-dark"}`}
             >
               <span
-                className={`mx-auto grid h-6 w-6 place-items-center rounded-full bg-white shadow-sm transition-transform duration-300 ${dark ? "translate-x-[26px]" : "translate-x-0"}`}
+                className={`absolute top-[3px] left-1 grid h-6 w-6 place-items-center rounded-full bg-white shadow-sm transition-transform duration-300 ${dark ? "translate-x-[24px]" : "translate-x-0"}`}
               >
                 {dark ? <IconMoon className="h-[13px] w-[13px] text-pine" /> : <IconSun className="h-[13px] w-[13px] text-brand-deep" />}
               </span>
