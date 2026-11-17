@@ -30,15 +30,21 @@ const PAD = 28;
 function hitungTitik(values: number[]): Titik[] {
   const maks = Math.max(...values);
   const min = Math.min(...values);
-  const atas = maks * 1.15 || 1;
-  const bawah = min * 0.55;
+  const semuaNol = maks === 0 && min === 0;
+  const semuaSama = maks === min;
+  const atas = semuaNol ? 1 : maks * 1.15 || 1;
+  const bawah = semuaNol ? 0 : min * 0.55;
   const rentang = atas - bawah || 1;
   const banyak = values.length;
   const langkah = banyak > 1 ? (LEBAR - PAD * 2) / (banyak - 1) : 0;
-  return values.map((v, i) => ({
-    x: banyak > 1 ? PAD + i * langkah : LEBAR / 2,
-    y: TINGGI - PAD - (((v || 0) - bawah) / rentang) * (TINGGI - PAD * 2),
-  }));
+  return values.map((v, i) => {
+    const nilai = v || 0;
+    const y = semuaNol || semuaSama ? TINGGI - PAD - (TINGGI - PAD * 2) / 2 : TINGGI - PAD - (((nilai - bawah) / rentang) * (TINGGI - PAD * 2));
+    return {
+      x: banyak > 1 ? PAD + i * langkah : LEBAR / 2,
+      y,
+    };
+  });
 }
 
 function jalur(pts: Titik[]) {
@@ -62,6 +68,8 @@ export default function ProdChart({ labels, values, mode }: { labels: string[]; 
   const [aktif, setAktif] = useState<number | null>(null);
   const banyak = values.length;
 
+  const semuaNol = banyak > 0 && values.every((v) => (v || 0) === 0);
+
   if (banyak === 0) {
     return (
       <div
@@ -69,6 +77,18 @@ export default function ProdChart({ labels, values, mode }: { labels: string[]; 
         style={{ borderColor: "var(--tj-garis, rgba(20,52,43,0.14))", color: "var(--tj-ink, #14342B)" }}
       >
         <p className="text-[13px] font-semibold opacity-70">Belum ada titik data untuk grafik {mode}.</p>
+      </div>
+    );
+  }
+
+  if (semuaNol) {
+    return (
+      <div
+        className="grid h-[190px] place-items-center rounded-2xl border border-dashed px-4 text-center"
+        style={{ borderColor: "var(--tj-garis, rgba(20,52,43,0.14))", color: "var(--tj-ink, #14342B)" }}
+      >
+        <p className="text-[13px] font-semibold opacity-70">Belum ada cetakan dalam rentang grafik {mode}.</p>
+        <p className="mt-1 text-[11.5px] font-medium opacity-70">Lihat tabel rekap di bawah untuk data produksi tersimpan.</p>
       </div>
     );
   }
@@ -217,38 +237,6 @@ export default function ProdChart({ labels, values, mode }: { labels: string[]; 
         </div>
       )}
 
-      {/* alternatif teks: tabel data yang bisa dibaca tanpa melihat grafik */}
-      <details
-        className="mt-4 rounded-2xl border px-3.5 py-2.5"
-        style={{ borderColor: "var(--tj-garis, rgba(20,52,43,0.12))", color: "var(--tj-ink, #14342B)" }}
-      >
-        <summary className="cursor-pointer text-[11.5px] font-bold tracking-wide uppercase opacity-80">
-          Lihat data {mode} sebagai tabel
-        </summary>
-        <table className="mt-2.5 w-full text-left text-[12px]">
-          <caption className="sr-only">Jumlah cetakan tahu per {mode}</caption>
-          <thead>
-            <tr className="opacity-70">
-              <th scope="col" className="py-1.5 pr-3 font-bold">
-                Periode
-              </th>
-              <th scope="col" className="py-1.5 text-right font-bold">
-                Cetak (papan)
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {values.map((v, i) => (
-              <tr key={`${nama(i)}-${i}`} className="border-t" style={{ borderColor: "var(--tj-garis, rgba(20,52,43,0.1))" }}>
-                <th scope="row" className="py-1.5 pr-3 text-left font-semibold">
-                  {nama(i)}
-                </th>
-                <td className="py-1.5 text-right font-bold tabular-nums">{formatRibuan(v)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </details>
     </div>
   );
 }

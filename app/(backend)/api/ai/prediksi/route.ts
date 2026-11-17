@@ -84,19 +84,31 @@ export async function GET(request: Request) {
     }
 
     // Jika belum ada riwayat tersimpan, coba jalankan model live
-    const livePrediction = await calculateAiPrediction({
-      mode: modeParam,
-      tanggal: tanggalParam,
-    });
+    try {
+      const livePrediction = await calculateAiPrediction({
+        mode: modeParam,
+        tanggal: tanggalParam,
+      });
 
-    return NextResponse.json({
-      status: 'success',
-      message: 'Data prediksi AI dihitung langsung oleh model Random Forest ONNX',
-      data: {
-        prediksi_aktif: livePrediction,
-        riwayat_prediksi: [livePrediction],
-      },
-    });
+      return NextResponse.json({
+        status: 'success',
+        message: 'Data prediksi AI dihitung langsung oleh model Random Forest ONNX',
+        data: {
+          prediksi_aktif: livePrediction,
+          riwayat_prediksi: [livePrediction],
+        },
+      });
+    } catch {
+      // Jika database belum siap untuk kalkulasi otomatis, kembalikan data kosong yang valid
+      return NextResponse.json({
+        status: 'success',
+        message: 'Belum ada riwayat prediksi tersimpan di server',
+        data: {
+          prediksi_aktif: null,
+          riwayat_prediksi: [],
+        },
+      });
+    }
   } catch (error) {
     if (error instanceof AiValidationError) {
       return NextResponse.json(

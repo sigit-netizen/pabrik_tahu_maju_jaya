@@ -10,7 +10,14 @@ import {
   type KeyboardEvent as KeyboardEventReact,
 } from "react";
 import ProdChart from "./ProdChart";
-import { IconAlert } from "./icons";
+import {
+  IconAlert,
+  IconCalendar,
+  IconPrint,
+  IconSearch,
+} from "./icons";
+import { ModalFilterLaporan, type FilterKustom } from "./ModalFilterLaporan";
+import { ModalCetakLaporan } from "./ModalCetakLaporan";
 import { skin } from "./theme";
 import {
   formatRibuan,
@@ -18,11 +25,10 @@ import {
   tanggalPendek,
   type BarisProduksi,
   type DashboardData,
+  type Mode,
   type Pagination,
-  type TrenProduksi,
+  type RincianPelanggan,
 } from "./data";
-
-type Mode = "harian" | "mingguan" | "bulanan";
 
 const TABS: { key: Mode; label: string }[] = [
   { key: "harian", label: "Harian" },
@@ -32,9 +38,6 @@ const TABS: { key: Mode; label: string }[] = [
 
 const BATAS_HALAMAN = 20;
 const PANEL_GRAFIK = "panel-grafik-produksi";
-
-const FOKUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const GAYA_GRAFIK_TERANG = {
   "--tj-ink": "#14342B",
@@ -54,17 +57,11 @@ const GAYA_GRAFIK_GELAP = {
   "--tj-garis": "rgba(246,241,231,0.16)",
 } as CSSProperties;
 
-type StatusRekap = "Selesai" | "Proses" | "Ditekan";
 type MuatanDash = { kunci: number; data: DashboardData | null; pesan: string | null };
 type MuatanBaris = { kunci: string; baris: BarisProduksi[]; pagination: Pagination | null; pesan: string | null };
+type MuatanPelanggan = { kunci: string; data: Record<string, string[]> };
 
 /* ---------- utilitas data ---------- */
-
-function statusRekap(b: BarisProduksi): StatusRekap {
-  if (b.jumlah_masak <= 0) return "Ditekan";
-  if (b.jumlah_masak >= b.jumlah_cetak) return "Selesai";
-  return "Proses";
-}
 
 function labelBulan(kunci: string) {
   const [tahun, bulan] = kunci.split("-").map(Number);
@@ -73,7 +70,18 @@ function labelBulan(kunci: string) {
 }
 
 /** Agregasi tren dari API sesuai rentang tab yang dipilih. */
-function agregatTren(tren: TrenProduksi[], mode: Mode): { labels: string[]; values: number[] } {
+function mingguKe(tanggal: string): number {
+  const d = new Date(tanggal);
+  const oneJan = new Date(d.getFullYear(), 0, 1);
+  /* Day of week: 0=Senin, 1=Selasa, ..., 6=Minggu di getDay().
+     ISO week: minggu pertama adalah yang berandung ke tahun baru.
+     Rumus sederhana: ambil hari ke-kecantikan dari 1 Januari, bagi 7, plus offset hari. */
+  const janOneDay = oneJan.getDay(); // 0=Senin, ..., 6=Minggu
+  const daysSinceJan1 = Math.floor((d.getTime() - oneJan.getTime()) / 86400000); // hari lengkap sejak 1 Januari
+  return Math.ceil((daysSinceJan1 + janOneDay + 1) / 7);
+}
+
+function agregatTren(tren: Array<{ tanggal: string; jumlah_cetak: number }>, mode: Mode): { labels: string[]; values: number[] } {
   if (tren.length === 0) return { labels: [], values: [] };
   if (mode === "harian") {
     return {
@@ -82,10 +90,32 @@ function agregatTren(tren: TrenProduksi[], mode: Mode): { labels: string[]; valu
     };
   }
   if (mode === "mingguan") {
-    const total = tren.reduce((a, t) => a + (Number(t.jumlah_cetak) || 0), 0);
-    const awal = tren[0].tanggal;
-    const akhir = tren[tren.length - 1].tanggal;
-    return { labels: [`${tanggalPendek(awal)}–${tanggalPendek(akhir)}`], values: [total] };
+    // Jika data 7 hari atau kurang (misal periode 1 minggu tertentu), tampilkan rincian harian
+    if (tren.length <= 7) {
+      return {
+        labels: tren.map((t) => tanggalPendek(t.tanggal)),
+        values: tren.map((t) => Number(t.jumlah_cetak) || 0),
+      };
+    }
+    /* Kelompokkan per minggu ISO, label "Minggu 1", "Minggu 2", dst. */
+    const perMinggu = new Map<number, number>();
+    for (const t of tren) {
+      const wk = mingguKe(t.tanggal);
+      perMinggu.set(wk, (perMinggu.get(wk) ?? 0) + (Number(t.jumlah_cetak) || 0));
+    }
+    /* Ambil semua minggu yang ada dan urutkan dari Minggu 1 */
+    const mingguTersort = [...perMinggu.entries()].sort((a, b) => a[0] - b[0]);
+    const labels = mingguTersort.map(([wk]) => `Minggu ${wk}`);
+    const values = mingguTersort.map(([, val]) => val);
+    return { labels, values };
+  }
+  // bulanan: jika data hanya 1 bulan tertentu, tampilkan per tanggal
+  const uniqueMonths = new Set(tren.map((t) => t.tanggal.slice(0, 7)));
+  if (uniqueMonths.size <= 1) {
+    return {
+      labels: tren.map((t) => tanggalPendek(t.tanggal)),
+      values: tren.map((t) => Number(t.jumlah_cetak) || 0),
+    };
   }
   const perBulan = new Map<string, number>();
   for (const t of tren) {
@@ -106,31 +136,6 @@ function pesanGagal(respon: Response, json: { message?: string } | null, konteks
 
 /* ---------- komponen kecil ---------- */
 
-function StatusPill({ status, dark }: { status: StatusRekap; dark: boolean }) {
-  const cls =
-    status === "Selesai"
-      ? dark
-        ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
-        : "border-emerald-200 bg-emerald-50 text-emerald-800"
-      : status === "Proses"
-        ? dark
-          ? "border-brand/50 bg-brand/15 text-brand"
-          : "border-amber-200 bg-amber-50 text-amber-800"
-        : dark
-          ? "border-cream/15 bg-cream/10 text-cream/70"
-          : "border-line-strong bg-cream-muted text-pine";
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${cls}`}>
-      <span
-        className="h-1.5 w-1.5 rounded-full bg-current"
-        style={status === "Proses" ? { animation: "tmj-blink 1.4s infinite" } : undefined}
-        aria-hidden
-      />
-      {status}
-    </span>
-  );
-}
-
 function KotakGagal({
   dark,
   pesan,
@@ -145,9 +150,7 @@ function KotakGagal({
   return (
     <div
       role="alert"
-      className={`flex flex-wrap items-start gap-3 rounded-2xl border px-4 py-3.5 ${
-        dark ? "border-red-400/35 bg-red-400/10" : "border-red-300/60 bg-red-50/70"
-      }`}
+      className={`flex flex-wrap items-start gap-3 rounded-2xl border px-4 py-3.5 ${dark ? "border-red-400/35 bg-red-400/10" : "border-red-300/60 bg-red-50/70"}`}
     >
       <IconAlert className={`mt-px h-4 w-4 shrink-0 ${dark ? "text-red-300" : "text-red-600"}`} />
       <p className={`min-w-0 flex-1 text-[12.5px] leading-5 font-semibold ${dark ? "text-red-200" : "text-red-800"}`}>
@@ -156,9 +159,7 @@ function KotakGagal({
       <button
         type="button"
         onClick={onCoba}
-        className={`btn-press h-8 shrink-0 rounded-lg border px-3 text-[12px] font-bold ${
-          dark ? "border-red-300/40 text-red-200 hover:bg-red-400/10" : "border-red-300 text-red-700 hover:bg-red-100"
-        }`}
+        className={`btn-press h-8 shrink-0 rounded-lg border px-3 text-[12px] font-bold ${dark ? "border-red-300/40 text-red-200 hover:bg-red-400/10" : "border-red-300 text-red-700 hover:bg-red-100"}`}
       >
         {cobaLabel}
       </button>
@@ -166,176 +167,259 @@ function KotakGagal({
   );
 }
 
-/** Modal list rekap: focus masuk saat terbuka, Escape menutup, Tab terperangkap, fokus kembali ke pemicu. */
-function ModalRekap({
+/**
+ * Komponen Form Status Pembayaran per baris rekap produksi:
+ * Menggantikan sistem centang manual dengan form pengisian nominal dan tombol "Kirim".
+ * Mendukung input nominal Rupiah langsung (mis. 500000 atau 1008000) maupun jumlah cetak (mis. 24).
+ * Menampilkan badge status: Lunas (hijau), Cicil (oranye), atau Belum lunas (merah/abu).
+ */
+function FormStatusBayar({
+  id,
+  jumlahCetak,
+  totalHarga,
+  hargaCetakAktif,
+  dataBayar,
+  onKirim,
   dark,
-  baris,
-  onTutup,
 }: {
+  id: string;
+  jumlahCetak: number;
+  totalHarga: number;
+  hargaCetakAktif: number;
+  dataBayar?: { lunas: boolean; cicil: boolean; cetakDibayar: number; nominalRupiah?: number };
+  onKirim: (id: string, nominalRupiah: number, cetakDibayar: number, lunas: boolean, cicil: boolean) => void;
   dark: boolean;
-  baris: BarisProduksi[];
-  onTutup: () => void;
 }) {
-  const s = skin(dark);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const nominalTerbayar =
+    dataBayar?.nominalRupiah ??
+    (dataBayar?.cetakDibayar ? dataBayar.cetakDibayar * hargaCetakAktif : 0);
 
-  useEffect(() => {
-    const overflowAwal = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    panelRef.current?.querySelector<HTMLElement>("[data-fokus-awal]")?.focus();
+  const [editedVal, setEditedVal] = useState<string | null>(null);
+  const [tersimpan, setTersimpan] = useState(false);
 
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onTutup();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const panel = panelRef.current;
-      if (!panel) return;
-      const daftar = Array.from(panel.querySelectorAll<HTMLElement>(FOKUSABLE));
-      if (daftar.length === 0) return;
-      const pertama = daftar[0];
-      const terakhir = daftar[daftar.length - 1];
-      const aktif = document.activeElement as HTMLElement | null;
-      if (!aktif || !panel.contains(aktif)) {
-        e.preventDefault();
-        (e.shiftKey ? terakhir : pertama).focus();
-        return;
-      }
-      if (e.shiftKey && aktif === pertama) {
-        e.preventDefault();
-        terakhir.focus();
-      } else if (!e.shiftKey && aktif === terakhir) {
-        e.preventDefault();
-        pertama.focus();
-      }
+  // Nilai input: saat sedang diedit tampilkan editedVal; jika tidak, tampilkan format ribuan jika sudah ada pembayaran
+  const inputVal = editedVal ?? (nominalTerbayar > 0 ? formatRibuan(nominalTerbayar) : "");
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const cleanDigits = (editedVal ?? (nominalTerbayar > 0 ? String(nominalTerbayar) : "")).replace(/[^\d]/g, "");
+    const rawVal = cleanDigits ? parseInt(cleanDigits, 10) : 0;
+
+    let nominalRupiah = 0;
+    let cetakDibayar = 0;
+    let lunas = false;
+    let cicil = false;
+
+    if (rawVal === 0) {
+      nominalRupiah = 0;
+      cetakDibayar = 0;
+      lunas = false;
+      cicil = false;
+    } else if (rawVal <= jumlahCetak && rawVal > 0) {
+      // Jika angka kecil (<= jumlah cetak), diperlakukan sebagai jumlah cetak yang dibayar
+      cetakDibayar = rawVal;
+      nominalRupiah = hargaCetakAktif > 0 ? rawVal * hargaCetakAktif : rawVal;
+      lunas = cetakDibayar >= jumlahCetak && jumlahCetak > 0;
+      cicil = cetakDibayar > 0 && !lunas;
+    } else {
+      // Jika angka lebih besar dari jumlah cetak, diperlakukan sebagai nominal Rupiah langsung
+      nominalRupiah = rawVal;
+      cetakDibayar =
+        hargaCetakAktif > 0
+          ? Math.min(jumlahCetak, Math.round(rawVal / hargaCetakAktif))
+          : 0;
+      lunas = nominalRupiah >= totalHarga && totalHarga > 0;
+      cicil = nominalRupiah > 0 && !lunas;
     }
 
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = overflowAwal;
-    };
-  }, [onTutup]);
+    onKirim(id, nominalRupiah, cetakDibayar, lunas, cicil);
+    setEditedVal(null);
+    setTersimpan(true);
+    setTimeout(() => setTersimpan(false), 1500);
+  }
+
+  const isLunas = dataBayar?.lunas ?? false;
+  const isCicil = dataBayar?.cicil ?? false;
+
+  const badgeClass = isLunas
+    ? dark
+      ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-300"
+      : "border-emerald-300/70 bg-emerald-50 text-emerald-800"
+    : isCicil
+    ? dark
+      ? "border-amber-400/40 bg-amber-400/15 text-amber-300"
+      : "border-amber-300/70 bg-amber-50 text-amber-800"
+    : dark
+    ? "border-rose-400/30 bg-rose-400/15 text-rose-300"
+    : "border-rose-300/70 bg-rose-50 text-rose-700";
+
+  const badgeText = isLunas ? "✓ Lunas" : isCicil ? "◐ Cicil" : "✕ Belum lunas";
 
   return (
-    <div
-      className={`fixed inset-0 z-50 grid place-items-center p-4 backdrop-blur-sm ${dark ? "bg-black/65" : "bg-pine-deep/60"}`}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="judul-rekap"
-      onClick={onTutup}
-    >
-      <div
-        ref={panelRef}
-        className={`anim-modal w-full max-w-[620px] overflow-hidden rounded-3xl shadow-2xl ${s.kartu}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className={`flex items-center justify-between px-6 py-4 text-cream ${dark ? "bg-pine-deep" : "bg-pine"}`}>
-          <div>
-            <p className="text-[11px] font-bold tracking-widest text-cream/60 uppercase">Pratinjau cetak</p>
-            <h3 id="judul-rekap" className="text-[16px] font-extrabold">
-              List Rekap Produksi
-            </h3>
-          </div>
-          <button
-            type="button"
-            data-fokus-awal
-            onClick={onTutup}
-            aria-label="Tutup pratinjau rekap"
-            className="btn-press grid h-9 w-9 place-items-center rounded-xl bg-cream/10 text-lg hover:bg-cream/20"
+    <div className="flex flex-col gap-1.5 py-1 min-w-[210px]">
+      <div className="flex items-center gap-1.5">
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold border transition-colors ${badgeClass}`}
+        >
+          {badgeText}
+        </span>
+        {nominalTerbayar > 0 && (
+          <span
+            className={`text-[10px] font-semibold tabular-nums ${dark ? "text-cream/55" : "text-pine/60"}`}
           >
-            ×
-          </button>
-        </div>
-
-        <div className="max-h-[46vh] overflow-auto p-6">
-          {baris.length === 0 ? (
-            <p className={`py-6 text-center text-[13px] font-semibold ${s.sub}`}>
-              Tidak ada baris untuk dicetak. Ubah filter atau muat halaman lain.
-            </p>
-          ) : (
-            <table className="w-full border-collapse text-[12.5px]">
-              <caption className="sr-only">Rekap produksi lengkap untuk pencetakan</caption>
-              <thead>
-                <tr className={`border-b ${s.garis}`}>
-                  <th scope="col" className={`py-2 pr-2 text-left text-[10.5px] font-bold tracking-widest uppercase ${s.label}`}>
-                    ID
-                  </th>
-                  <th scope="col" className={`py-2 pr-2 text-left text-[10.5px] font-bold tracking-widest uppercase ${s.label}`}>
-                    Tanggal
-                  </th>
-                  <th scope="col" className={`py-2 pr-2 text-right text-[10.5px] font-bold tracking-widest uppercase ${s.label}`}>
-                    Cetak/Masak
-                  </th>
-                  <th scope="col" className={`py-2 pr-2 text-right text-[10.5px] font-bold tracking-widest uppercase ${s.label}`}>
-                    Pendapatan
-                  </th>
-                  <th scope="col" className={`py-2 text-center text-[10.5px] font-bold tracking-widest uppercase ${s.label}`}>
-                    Status
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {baris.map((r) => (
-                  <tr key={String(r.id)} className={`border-b ${s.tbody}`}>
-                    <td className={`py-2.5 pr-2 font-mono text-[12px] font-bold ${s.badgeHarga}`}>{String(r.id)}</td>
-                    <td className="py-2.5 pr-2 font-semibold">{r.tanggal}</td>
-                    <td className="py-2.5 pr-2 text-right tabular-nums">
-                      {formatRibuan(r.jumlah_cetak)}/{formatRibuan(r.jumlah_masak)}
-                    </td>
-                    <td className="py-2.5 pr-2 text-right tabular-nums">{r.jumlah_pendapatan_rupiah}</td>
-                    <td className="py-2.5 text-center">
-                      <StatusPill status={statusRekap(r)} dark={dark} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          <p className={`mt-3 text-[11.5px] ${s.redup}`}>
-            Dokumen internal Pabrik Tahu Maju Jaya • {baris.length} baris • dicetak{" "}
-            {new Date().toLocaleString("id-ID")}
-          </p>
-        </div>
-
-        <div className={`no-print flex gap-2 border-t px-6 py-4 ${s.garis} ${s.kepala}`}>
-          <button
-            type="button"
-            onClick={onTutup}
-            className={`btn-press h-10 flex-1 rounded-xl border text-[13px] font-bold ${s.garisKuat} ${s.chip} ${s.hantu}`}
-          >
-            Tutup
-          </button>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className={`btn-press h-10 flex-1 rounded-xl text-[13px] font-bold ${s.tombolGelap}`}
-          >
-            ⎙ Cetak sekarang
-          </button>
-        </div>
+            {isLunas ? "(Lunas penuh)" : `(Masuk: ${rupiah(nominalTerbayar)})`}
+          </span>
+        )}
       </div>
+
+      <form onSubmit={handleSubmit} className="flex items-center gap-1.5">
+        <div className="relative flex-1">
+          <span
+            className={`pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold select-none ${dark ? "text-cream/40" : "text-pine/40"}`}
+          >
+            Rp
+          </span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={inputVal}
+            onChange={(e) => setEditedVal(e.target.value.replace(/[^\d.,]/g, ""))}
+            onFocus={() => {
+              if (editedVal === null && nominalTerbayar > 0) {
+                setEditedVal(String(nominalTerbayar));
+              }
+            }}
+            onBlur={() => {
+              if (editedVal !== null) {
+                const digits = editedVal.replace(/[^\d]/g, "");
+                setEditedVal(digits ? formatRibuan(parseInt(digits, 10)) : "");
+              }
+            }}
+            placeholder="0"
+            aria-label={`Nominal bayar baris ID ${id}`}
+            className={`h-7 w-full rounded-lg border pl-7 pr-2 text-right font-mono text-[11px] font-bold tabular-nums transition-colors focus:border-brand focus:outline-none ${
+              dark
+                ? "border-cream/15 bg-pine-deep text-cream placeholder:text-cream/30 focus:bg-pine"
+                : "border-line-strong bg-white text-pine placeholder:text-pine/30 focus:bg-white"
+            }`}
+          />
+        </div>
+
+        <button
+          type="submit"
+          className={`btn-press flex h-7 items-center justify-center rounded-lg px-2.5 text-[11px] font-bold transition-all shadow-xs cursor-pointer shrink-0 ${
+            tersimpan
+              ? "bg-emerald-600 text-white"
+              : dark
+              ? "bg-brand text-pine-deep hover:bg-brand/90"
+              : "bg-brand text-white hover:bg-brand/90"
+          }`}
+          title="Kirim dan simpan nominal pembayaran"
+        >
+          {tersimpan ? "✓ Disimpan" : "Kirim"}
+        </button>
+      </form>
     </div>
   );
 }
 
 /* ---------- view utama ---------- */
 
-export default function DashboardView({ onToast, dark }: { onToast: (m: string) => void; dark: boolean }) {
+export default function DashboardView({
+  dark,
+  mode,
+  setMode,
+  onTotalsChange,
+}: {
+  dark: boolean;
+  mode: Mode;
+  setMode: (v: Mode) => void;
+  onTotalsChange: (cetak: number, pendapatan: number) => void;
+}) {
   const s = skin(dark);
-  const [mode, setMode] = useState<Mode>("mingguan");
   const [q, setQ] = useState("");
   const [halaman, setHalaman] = useState(1);
   const [cobaDashboard, setCobaDashboard] = useState(0);
   const [cobaBaris, setCobaBaris] = useState(0);
   const [muatanDash, setMuatanDash] = useState<MuatanDash | null>(null);
   const [muatanBaris, setMuatanBaris] = useState<MuatanBaris | null>(null);
-  const [showRekap, setShowRekap] = useState(false);
+  const [showModalCetak, setShowModalCetak] = useState(false);
+
+  /* Modal filter periode laporan (Harian / Mingguan / Bulanan) */
+  const [modalFilterMode, setModalFilterMode] = useState<Mode | null>(null);
+  const [filterKustom, setFilterKustom] = useState<FilterKustom | null>(null);
+
+  function handleTerapkanFilter(filter: FilterKustom) {
+    setFilterKustom(filter);
+    setMode(filter.mode);
+    setHalaman(1);
+    setModalFilterMode(null);
+  }
+
+  function handleResetFilter() {
+    setFilterKustom(null);
+    setHalaman(1);
+    setModalFilterMode(null);
+  }
+
+  /* Status pembayaran (tersimpan di frontend / localStorage) */
+  const [pembayaran, setPembayaran] = useState<
+    Record<string, { lunas: boolean; cicil: boolean; cetakDibayar: number; nominalRupiah?: number }>
+  >(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = localStorage.getItem("tmj_pembayaran_status");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") return parsed;
+      }
+    } catch {
+      // Abaikan bila diakses di SSR
+    }
+    return {};
+  });
+
+  // Simpan perubahan status pembayaran ke localStorage
+  const refMountedStorage = useRef(false);
+  useEffect(() => {
+    if (!refMountedStorage.current) {
+      refMountedStorage.current = true;
+      return;
+    }
+    try {
+      localStorage.setItem("tmj_pembayaran_status", JSON.stringify(pembayaran));
+    } catch (e) {
+      console.warn("[pembayaran] Gagal menyimpan ke localStorage:", e);
+    }
+  }, [pembayaran]);
+
+  const handleSimpanPembayaran = useCallback(
+    (
+      id: string,
+      nominalRupiah: number,
+      cetakDibayar: number,
+      lunas: boolean,
+      cicil: boolean
+    ) => {
+      setPembayaran((prev) => ({
+        ...prev,
+        [id]: {
+          lunas,
+          cicil,
+          cetakDibayar,
+          nominalRupiah,
+        },
+      }));
+    },
+    []
+  );
+
+  /* Nama pelanggan per tanggal rekap. Header rekap (/api/produksi) tidak
+     menyimpan nama — nama ada di rincian_product_harian yang dibaca lewat
+     /api/produksi/input?tanggal=. Dipasangkan lewat tanggal rekap. */
+  const [muatanPelanggan, setMuatanPelanggan] = useState<MuatanPelanggan | null>(null);
 
   const refTab = useRef<(HTMLButtonElement | null)[]>([]);
-  const refPemicuRekap = useRef<HTMLButtonElement>(null);
 
   /* Ringkasan + tren — GET /api/dashboard */
   useEffect(() => {
@@ -362,12 +446,16 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
   }, [cobaDashboard]);
 
   /* Rekap harian — GET /api/produksi */
-  const kunciBaris = `${halaman}|${cobaBaris}`;
+  const kunciBaris = `${halaman}|${cobaBaris}|${filterKustom?.startDate ?? ""}|${filterKustom?.endDate ?? ""}`;
   useEffect(() => {
     let batal = false;
     (async () => {
       try {
-        const res = await fetch(`/api/produksi?page=${halaman}&limit=${BATAS_HALAMAN}`, {
+        let url = `/api/produksi?page=${halaman}&limit=${BATAS_HALAMAN}`;
+        if (filterKustom) {
+          url += `&start_date=${encodeURIComponent(filterKustom.startDate)}&end_date=${encodeURIComponent(filterKustom.endDate)}`;
+        }
+        const res = await fetch(url, {
           credentials: "include",
           cache: "no-store",
         });
@@ -402,7 +490,7 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
     return () => {
       batal = true;
     };
-  }, [halaman, cobaBaris, kunciBaris]);
+  }, [halaman, cobaBaris, kunciBaris, filterKustom]);
 
   /* Status turunan — tidak ada setState sinkron di dalam effect */
   const dash = muatanDash?.kunci === cobaDashboard ? muatanDash.data : null;
@@ -417,36 +505,179 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
   const errorBaris = muatanBaris?.kunci === kunciBaris ? muatanBaris.pesan : null;
   const memuatBaris = muatanBaris?.kunci !== kunciBaris;
 
+  /* Tanggal unik pada halaman ini — satu request per tanggal untuk ambil
+     rincian pelanggan. Header rekap tidak membawa nama, jadi ini sumbernya. */
+  const tanggalBunik = useMemo(
+    () => [...new Set(baris.map((r) => r.tanggal).filter(Boolean))].sort(),
+    [baris],
+  );
+  const kunciTanggal = tanggalBunik.join(",");
+
+  useEffect(() => {
+    let batal = false;
+    if (tanggalBunik.length === 0) return;
+    (async () => {
+      /* Header rekap dan rinciannya ditulis dengan created_at yang sama, jadi
+         pasangan dibuat per created_at — bukan per tanggal. Dengan begitu dua
+         rekap pada tanggal sama tetap punya nama pelanggan masing-masing. */
+      const hasil: Record<string, string[]> = {};
+      await Promise.all(
+        tanggalBunik.map(async (tanggal) => {
+          try {
+            const res = await fetch(`/api/produksi/input?tanggal=${encodeURIComponent(tanggal)}`, {
+              credentials: "include",
+              cache: "no-store",
+            });
+            const json = await res.json().catch(() => null);
+            if (batal) return;
+            if (!res.ok || !json || json.status !== "success") return;
+            const rincian = json.data?.rincian_hari_ini;
+            if (!Array.isArray(rincian)) return;
+            for (const item of rincian as RincianPelanggan[]) {
+              const nama = String(item.nama ?? "").trim();
+              if (!nama) continue;
+              const kunci = String(item.created_at ?? "");
+              if (!kunci) continue;
+              (hasil[kunci] ??= []).push(nama);
+            }
+          } catch {
+            /* biarkan kosong — tabel tetap menampilkan "—" */
+          }
+        }),
+      );
+      if (!batal) setMuatanPelanggan({ kunci: kunciTanggal, data: hasil });
+    })();
+    return () => {
+      batal = true;
+    };
+  }, [kunciTanggal, tanggalBunik]);
+
   const ringkasan = dash?.ringkasan ?? null;
   const tren = useMemo(() => dash?.grafik_tren_produksi ?? [], [dash]);
-  const seri = useMemo(() => agregatTren(tren, mode), [tren, mode]);
 
+  /* Susun tren dari baris rekap yang sudah dimuat (seadanya), tanpa
+     mengharuskan minimal 7 hari. Ini adalah sumber grafik utama supaya
+     grafik selalu mencerminkan tabel rekap di bawahnya. */
+  const trenDariBaris = useMemo(() => {
+    const byDate = new Map<string, number>();
+    for (const r of baris) {
+      const tgl = r.tanggal;
+      byDate.set(tgl, (byDate.get(tgl) || 0) + (Number(r.jumlah_cetak) || 0));
+    }
+    return [...byDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([tanggal, jumlah_cetak]) => ({ tanggal, jumlah_cetak }));
+  }, [baris]);
+
+  /* Gabungkan data API (grafik_tren_produksi) dengan data rekap, tanpa
+     duplikasi tanggal. Data rekap prioritas tinggi karena relevan dengan
+     tabel di bawah. */
+  const trenEfektif = useMemo(() => {
+    /* Jika ada data rekap dengan cetakan > 0, pakai itu (seadanya, tanpa
+       memaksa 7 hari terakhir dari API). Jika tidak, fall back ke data API. */
+    const adaDataRiil = trenDariBaris.some((t) => (Number(t.jumlah_cetak) || 0) > 0);
+    if (adaDataRiil) return trenDariBaris;
+
+    const byDate = new Map<string, number>();
+    for (const t of tren) {
+      byDate.set(t.tanggal, (byDate.get(t.tanggal) || 0) + (Number(t.jumlah_cetak) || 0));
+    }
+    return [...byDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([tanggal, jumlah_cetak]) => ({ tanggal, jumlah_cetak }));
+  }, [tren, trenDariBaris]);
+
+  const seri = useMemo(() => agregatTren(trenEfektif, mode), [trenEfektif, mode]);
+
+  /* Data rincian hanya dipakai kalau cocok dengan tanggal yang sedang tampil. */
+  const dataPelanggan = muatanPelanggan?.kunci === kunciTanggal ? muatanPelanggan.data : null;
+  const muatPelanggan = muatanPelanggan !== null && muatanPelanggan.kunci !== kunciTanggal;
+
+  /* Nama pelanggan untuk satu baris rekap. Header rekap di /api/produksi tidak
+     membawa nama, jadi diambil dari rincian dengan created_at yang sama —
+     pasangan itu ditulis bersamaan saat pencatatan produksi. */
+  const namaPelanggan = useMemo(() => {
+    const peta = new Map<string, string[]>();
+    for (const [createdAt, nama] of Object.entries(dataPelanggan ?? {})) {
+      peta.set(createdAt, nama);
+    }
+    return (createdAt: string) => peta.get(createdAt) ?? [];
+  }, [dataPelanggan]);
+
+  const hargaCetakAktif = Number(ringkasan?.harga_cetak_aktif) || 0;
+
+  /* Filter data cetak sesuai mode yang dipilih atau periode kustom */
+  const barisUntukCetak = useMemo(() => {
+    if (filterKustom) {
+      return baris.filter(
+        (r: BarisProduksi) =>
+          r.tanggal >= filterKustom.startDate && r.tanggal <= filterKustom.endDate
+      );
+    }
+    return baris;
+  }, [baris, filterKustom]);
+
+  /* Total untuk mode grafik (dikirim ke kartu KPI atas) */
+  const totalCetakCetak = useMemo(
+    () => barisUntukCetak.reduce((a, b) => a + (Number(b.jumlah_cetak) || 0), 0),
+    [barisUntukCetak],
+  );
+  const totalHargaCetak = useMemo(
+    () => barisUntukCetak.reduce((a, b) => a + (Number(b.jumlah_cetak) * hargaCetakAktif || 0), 0),
+    [barisUntukCetak, hargaCetakAktif],
+  );
+
+  /* Kirim total terfilter ke DashboardApp untuk kartu KPI atas */
+  useEffect(() => {
+    onTotalsChange(totalCetakCetak, totalHargaCetak);
+  }, [totalCetakCetak, totalHargaCetak, onTotalsChange]);
+
+  /* Filter pencarian (q) di atas baris mode */
   const barisTampil = useMemo(() => {
     const kunci = q.trim().toLowerCase();
-    if (!kunci) return baris;
-    return baris.filter(
-      (r) =>
-        String(r.id).toLowerCase().includes(kunci) ||
-        r.tanggal.toLowerCase().includes(kunci) ||
-        (r.waktu_wib ?? "").toLowerCase().includes(kunci) ||
-        (r.jumlah_pendapatan_rupiah ?? "").toLowerCase().includes(kunci) ||
-        statusRekap(r).toLowerCase().includes(kunci),
-    );
-  }, [baris, q]);
+    if (!kunci) return barisUntukCetak;
+    return barisUntukCetak.filter((r) => {
+      const idStr = String(r.id).toLowerCase();
+      const tglStr = (r.tanggal || "").toLowerCase();
+      const waktuStr = (r.waktu_wib || "").toLowerCase();
+      const pelangganList = namaPelanggan(r.created_at).join(" ").toLowerCase();
+      const isLunas = pembayaran[String(r.id)]?.lunas;
+      const isCicil = pembayaran[String(r.id)]?.cicil;
+      const statusStr = isLunas ? "lunas" : isCicil ? "cicil" : "belum lunas";
+      return (
+        idStr.includes(kunci) ||
+        tglStr.includes(kunci) ||
+        waktuStr.includes(kunci) ||
+        pelangganList.includes(kunci) ||
+        statusStr.includes(kunci)
+      );
+    });
+  }, [barisUntukCetak, q, namaPelanggan, pembayaran]);
 
-  const totalCetak = useMemo(() => barisTampil.reduce((a, b) => a + (Number(b.jumlah_cetak) || 0), 0), [barisTampil]);
-  const totalMasak = useMemo(() => barisTampil.reduce((a, b) => a + (Number(b.jumlah_masak) || 0), 0), [barisTampil]);
+  const totalCetakTampil = useMemo(
+    () => barisTampil.reduce((a, b) => a + (Number(b.jumlah_cetak) || 0), 0),
+    [barisTampil],
+  );
+  const totalMasakTampil = useMemo(
+    () => barisTampil.reduce((a, b) => a + (Number(b.jumlah_masak) || 0), 0),
+    [barisTampil],
+  );
+  const totalHargaTampil = useMemo(
+    () => barisTampil.reduce((a, b) => a + (Number(b.jumlah_cetak) * hargaCetakAktif || 0), 0),
+    [barisTampil, hargaCetakAktif],
+  );
 
-  const totalCetakApi = Number(ringkasan?.total_cetak) || 0;
-  const totalMasakApi = Number(ringkasan?.total_masak) || 0;
-  const sisaApi = Math.max(0, totalCetakApi - totalMasakApi);
-  const persenMasak = totalCetakApi > 0 ? Math.round((totalMasakApi / totalCetakApi) * 100) : 0;
-  const pendapatan = ringkasan?.total_pendapatan_rupiah || rupiah(Number(ringkasan?.total_pendapatan) || 0);
-  const prediksi = dash?.prediksi_mingguan ?? null;
-  const ketCetak =
-    tren.length > 0
-      ? `Rata-rata harian ${formatRibuan(Math.round(totalCetakApi / tren.length))} papan`
-      : "Ringkasan seluruh catatan tersimpan";
+  /* Total nominal pembayaran yang sudah dicatat untuk baris yang sedang tampil */
+  const totalNominalDibayarTampil = useMemo(() => {
+    return barisTampil.reduce((acc, r) => {
+      const bayar = pembayaran[String(r.id)];
+      if (!bayar) return acc;
+      const nominal = bayar.nominalRupiah ?? (bayar.cetakDibayar * hargaCetakAktif);
+      return acc + nominal;
+    }, 0);
+  }, [barisTampil, pembayaran, hargaCetakAktif]);
+
+  const totalSisaBelumLunasTampil = Math.max(0, totalHargaTampil - totalNominalDibayarTampil);
 
   function pindahTab(e: KeyboardEventReact<HTMLButtonElement>) {
     const ini = TABS.findIndex((t) => t.key === mode);
@@ -460,11 +691,6 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
     setMode(TABS[tujuan].key);
     refTab.current[tujuan]?.focus();
   }
-
-  const tutupRekap = useCallback(() => {
-    setShowRekap(false);
-    refPemicuRekap.current?.focus();
-  }, []);
 
   const gayaGrafik = dark ? GAYA_GRAFIK_GELAP : GAYA_GRAFIK_TERANG;
 
@@ -510,10 +736,8 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
                   aria-controls={PANEL_GRAFIK}
                   tabIndex={terpilih ? 0 : -1}
                   onKeyDown={pindahTab}
-                  onClick={() => setMode(t.key)}
-                  className={`tab-pill relative z-10 rounded-lg px-4 py-2 sm:px-6 ${
-                    terpilih ? (dark ? "text-pine-deep" : "text-cream") : s.hantu
-                  }`}
+                  onClick={() => setModalFilterMode(t.key)}
+                  className={`tab-pill relative z-10 rounded-lg px-4 py-2 sm:px-6 cursor-pointer ${terpilih ? (dark ? "text-pine-deep" : "text-cream") : s.hantu}`}
                 >
                   {t.label}
                 </button>
@@ -551,9 +775,7 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
               {dash?.is_mock_data && (
                 <div
                   role="status"
-                  className={`mb-4 flex items-start gap-2.5 rounded-2xl border px-4 py-3 ${
-                    dark ? "border-brand/40 bg-brand/10" : "border-amber-300/70 bg-amber-50/80"
-                  }`}
+                  className={`mb-4 flex items-start gap-2.5 rounded-2xl border px-4 py-3 ${dark ? "border-brand/40 bg-brand/10" : "border-amber-300/70 bg-amber-50/80"}`}
                 >
                   <IconAlert className={`mt-px h-4 w-4 shrink-0 ${dark ? "text-brand" : "text-amber-600"}`} />
                   <p className={`text-[12.5px] leading-5 font-semibold ${dark ? "text-cream/85" : "text-amber-900"}`}>
@@ -567,55 +789,12 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
           )}
         </div>
 
-        {/* ringkasan angka dari API */}
-        {memuatDash ? (
-          <div className="px-5 py-5 sm:px-6">
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-hidden>
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} className={`shimmer-wrap h-[74px] rounded-2xl ${dark ? "bg-cream/10" : "bg-cream-muted"}`} />
-              ))}
-            </div>
-          </div>
-        ) : ringkasan ? (
-          <div className="px-5 py-5 sm:px-6">
-            <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              {[
-                { label: "Total cetakan", nilai: formatRibuan(totalCetakApi), satuan: "papan", ket: ketCetak },
-                { label: "Sudah masak", nilai: formatRibuan(totalMasakApi), satuan: "papan", ket: `${persenMasak}% dari cetakan` },
-                { label: "Antre masak", nilai: formatRibuan(sisaApi), satuan: "papan", ket: "Cetak minus masak" },
-                { label: "Pendapatan", nilai: pendapatan, satuan: "", ket: ringkasan.status_pabrik ?? "Status tidak dilaporkan" },
-              ].map((k) => (
-                <div key={k.label} className={`rounded-2xl border px-4 py-3 ${s.panel}`}>
-                  <dt className={`text-[10.5px] font-bold tracking-[0.14em] uppercase ${s.sub}`}>{k.label}</dt>
-                  <dd className={`mt-1 text-[20px] leading-none font-extrabold tracking-tight tabular-nums ${s.judul}`}>
-                    {k.nilai}
-                    {k.satuan ? <span className={`ml-1 text-[11px] font-bold ${s.sub}`}>{k.satuan}</span> : null}
-                  </dd>
-                  <dd className={`mt-1.5 text-[11px] font-medium ${s.redup}`}>{k.ket}</dd>
-                </div>
-              ))}
-            </dl>
-            <p className={`mt-3 text-[11.5px] font-medium ${s.redup}`}>
-              {ringkasan.harga_cetak_aktif
-                ? `Harga cetak aktif ${rupiah(Number(ringkasan.harga_cetak_aktif))} per papan`
-                : "Harga cetak aktif belum ditetapkan"}{" "}
-              {prediksi
-                ? `• Prediksi ${tanggalPendek(prediksi.periode_mulai)}–${tanggalPendek(
-                    prediksi.periode_selesai,
-                  )}: ${formatRibuan(prediksi.estimasi_total_cetak)} papan`
-                : ""}
-            </p>
-          </div>
-        ) : null}
-
         {/* toolbar filter + cetak */}
-        <div className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-6">
-          <div className="relative min-w-[210px] flex-1">
+        <div className="px-5 py-4 sm:px-6">
+          {/* baris 1: pencarian */}
+          <div className="relative mb-3">
             <span className={`pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 ${s.ikon}`} aria-hidden>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-                <circle cx="11" cy="11" r="7" />
-                <path d="m20 20-3.5-3.5" />
-              </svg>
+              <IconSearch className="h-[15px] w-[15px]" />
             </span>
             <input
               value={q}
@@ -625,28 +804,71 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
               className={`h-10 w-full rounded-xl border pr-3 pl-10 text-[13px] font-medium transition focus:border-brand focus:shadow-[0_0_0_4px_rgba(217,119,6,0.14)] focus:outline-none ${s.input}`}
             />
           </div>
+
+          {/* baris 2: ringkasan + filter mode di kiri, tombol rekap di kanan */}
           <div className="flex flex-wrap items-center gap-2">
             <span className={`hidden rounded-lg px-3 py-2 text-[12px] font-bold sm:inline ${dark ? "bg-pine-deep text-cream/70" : "bg-cream-muted text-pine/70"}`}>
-              {barisTampil.length} baris • {formatRibuan(totalCetak)} cetak
+              {barisTampil.length} baris • {formatRibuan(totalCetakTampil)} cetak
             </span>
-            <button
-              type="button"
-              ref={refPemicuRekap}
-              onClick={() => setShowRekap(true)}
-              className={`btn-press h-10 rounded-xl border px-4 text-[12.5px] font-bold ${s.garisKuat} ${s.chip} ${s.hantu}`}
-            >
-              ⧉ List Rekap
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                onToast("Membuka pratinjau cetak — gunakan Ctrl+P untuk mencetak.");
-                setShowRekap(true);
-              }}
-              className="btn-press h-10 rounded-xl bg-brand px-5 text-[12.5px] font-bold text-white shadow-[0_8px_20px_rgba(217,119,6,0.3)] hover:bg-brand-deep"
-            >
-              ⎙ Cetak
-            </button>
+            <div className={`relative grid grid-cols-3 rounded-xl border p-1 text-[11px] font-bold ${s.garisKuat} ${s.chip}`} role="tablist" aria-label="Filter rekap">
+              <span
+                aria-hidden
+                className={`tab-thumb absolute top-1 bottom-1 rounded-lg z-0 ${dark ? "bg-brand" : "bg-pine"}`}
+                style={{
+                  left: 4,
+                  width: "calc((100% - 8px) / 3)",
+                  transform: `translateX(${mode === "harian" ? 0 : mode === "mingguan" ? 100 : 200}%)`,
+                }}
+              />
+              {TABS.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setModalFilterMode(t.key)}
+                  aria-label={`Filter ${t.label}`}
+                  aria-pressed={mode === t.key}
+                  className={`relative z-10 text-[11px] uppercase tracking-widest px-3 py-2 rounded-lg transition-colors cursor-pointer ${mode === t.key ? "bg-pine text-cream font-bold" : dark ? "text-cream/30 hover:text-cream hover:bg-cream/10" : "text-pine/70 hover:text-pine hover:bg-pine/10"}`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Badge pill filter periode aktif */}
+            {filterKustom && (
+              <div className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-[11.5px] font-bold ${
+                dark ? "border-brand/40 bg-brand/15 text-cream" : "border-amber-300 bg-amber-50 text-amber-900"
+              }`}>
+                <IconCalendar className={`h-3.5 w-3.5 ${dark ? "text-brand" : "text-amber-700"}`} />
+                <span>{filterKustom.label}</span>
+                <button
+                  type="button"
+                  onClick={() => setModalFilterMode(filterKustom.mode)}
+                  className={`ml-1 underline cursor-pointer text-[11px] font-extrabold ${dark ? "text-brand hover:text-brand-soft" : "text-amber-800 hover:text-amber-950"}`}
+                >
+                  Ubah
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetFilter}
+                  title="Hapus filter periode"
+                  aria-label="Hapus filter periode"
+                  className="ml-1 grid h-4 w-4 place-items-center rounded-full bg-black/10 hover:bg-black/20 dark:bg-white/10 dark:hover:bg-white/20 text-[10px] font-black cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowModalCetak(true)}
+                className="btn-press flex h-10 items-center gap-2 rounded-xl bg-brand px-5 text-[12.5px] font-bold text-white shadow-[0_8px_20px_rgba(217,119,6,0.3)] hover:bg-brand-deep cursor-pointer"
+              >
+                <IconPrint className="h-4 w-4" />
+                Cetak Laporan
+              </button>
+            </div>
           </div>
         </div>
 
@@ -674,13 +896,28 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
           ) : barisTampil.length === 0 ? (
             <div className={`rounded-2xl border px-4 py-8 text-center ${s.panel}`}>
               <p className={`text-[14px] font-bold ${s.judul}`}>
-                {baris.length === 0 ? "Belum ada catatan produksi" : "Tidak ada baris yang cocok"}
+                {baris.length === 0
+                  ? "Belum ada catatan produksi"
+                  : filterKustom
+                  ? `Tidak ada catatan pada periode ${filterKustom.label}`
+                  : "Tidak ada baris yang cocok"}
               </p>
               <p className={`mt-1 text-[12.5px] ${s.sub}`}>
-                {baris.length === 0
+                {filterKustom
+                  ? "Coba pilih tanggal/minggu/bulan lain atau klik tombol reset filter di bawah."
+                  : baris.length === 0
                   ? "Catat cetakan lewat menu Input, atau isi tabel product_harian lebih dulu, lalu muat ulang halaman ini."
                   : "Coba kata kunci lain, mis. “selesai”, “2026-10-17”, atau id baris."}
               </p>
+              {filterKustom && (
+                <button
+                  type="button"
+                  onClick={handleResetFilter}
+                  className={`mt-3 btn-press inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-[12px] font-bold ${s.garisKuat} ${s.chip} cursor-pointer`}
+                >
+                  ✕ Reset Filter Periode
+                </button>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -698,13 +935,19 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
                       Cetak
                     </th>
                     <th scope="col" className="px-4 py-3 text-right text-[11px] font-bold tracking-widest uppercase">
+                      Sisa Belum Lunas
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-right text-[11px] font-bold tracking-widest uppercase">
                       Masak
                     </th>
                     <th scope="col" className="px-4 py-3 text-right text-[11px] font-bold tracking-widest uppercase">
-                      Sisa
+                      Total Harga
                     </th>
-                    <th scope="col" className="px-4 py-3 text-right text-[11px] font-bold tracking-widest uppercase">
-                      Status
+                    <th scope="col" className="px-4 py-3 text-[11px] font-bold tracking-widest uppercase">
+                      Status Bayar
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-[11px] font-bold tracking-widest uppercase">
+                      Pelanggan
                     </th>
                   </tr>
                 </thead>
@@ -721,16 +964,36 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
                         {r.waktu_wib ? <span className={`block text-[11px] font-medium ${s.sub}`}>{r.waktu_wib}</span> : null}
                       </td>
                       <td className="px-4 py-3 text-right font-bold tabular-nums">{formatRibuan(r.jumlah_cetak)}</td>
-                      <td className={`px-4 py-3 text-right tabular-nums ${s.label}`}>{formatRibuan(r.jumlah_masak)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        <span
-                          className={`font-bold ${r.jumlah_cetak - r.jumlah_masak > 10 ? s.badgeHarga : s.redup}`}
-                        >
-                          {formatRibuan(r.jumlah_cetak - r.jumlah_masak)}
-                        </span>
+                      <td className="px-4 py-3 text-right tabular-nums font-semibold">
+                        {(() => {
+                          const info = pembayaran[String(r.id)];
+                          const dibayar = info?.nominalRupiah ?? ((info?.cetakDibayar ?? 0) * hargaCetakAktif);
+                          const total = Number(r.jumlah_cetak) * hargaCetakAktif;
+                          const sisa = Math.max(0, total - dibayar);
+                          return rupiah(sisa);
+                        })()}
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <StatusPill status={statusRekap(r)} dark={dark} />
+                      <td className="px-4 py-3 text-right tabular-nums">{Number(r.jumlah_masak)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{rupiah(Number(r.jumlah_cetak) * hargaCetakAktif)}</td>
+                      <td className="px-4 py-3 align-middle">
+                        <FormStatusBayar
+                          id={String(r.id)}
+                          jumlahCetak={Number(r.jumlah_cetak)}
+                          totalHarga={Number(r.jumlah_cetak) * hargaCetakAktif}
+                          hargaCetakAktif={hargaCetakAktif}
+                          dataBayar={pembayaran[String(r.id)]}
+                          onKirim={handleSimpanPembayaran}
+                          dark={dark}
+                        />
+                      </td>
+                      <td className="px-4 py-3 text-[13px]">
+                        {namaPelanggan(r.created_at).length > 0 ? (
+                          <span className="block max-w-[220px] truncate" title={namaPelanggan(r.created_at).join(", ")}>
+                            {namaPelanggan(r.created_at).join(", ")}
+                          </span>
+                        ) : (
+                          <span className={s.redup}>{muatPelanggan ? "…" : "-"}</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -738,12 +1001,18 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
                 <tfoot>
                   <tr className={`border-t-2 font-extrabold ${dark ? "border-cream/15 bg-pine-deep/60" : "border-pine/15 bg-cream/70"}`}>
                     <td colSpan={2} className="px-4 py-3 text-[12px] tracking-wide uppercase">
-                      Total tampil
+                      Total tampil ({barisTampil.length} baris)
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums">{formatRibuan(totalCetak)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{formatRibuan(totalMasak)}</td>
-                    <td className={`px-4 py-3 text-right tabular-nums ${s.badgeHarga}`}>
-                      {formatRibuan(totalCetak - totalMasak)}
+                    <td className="px-4 py-3 text-right tabular-nums">{formatRibuan(totalCetakTampil)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums font-bold">
+                      {rupiah(totalSisaBelumLunasTampil)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">{formatRibuan(totalMasakTampil)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {formatRibuan(totalHargaTampil)}
+                    </td>
+                    <td className={`px-4 py-3 text-right text-[11px] font-bold tabular-nums ${dark ? "text-emerald-300" : "text-emerald-700"}`}>
+                      {totalNominalDibayarTampil > 0 ? `Terbayar ${rupiah(totalNominalDibayarTampil)}` : ""}
                     </td>
                     <td />
                   </tr>
@@ -781,7 +1050,24 @@ export default function DashboardView({ onToast, dark }: { onToast: (m: string) 
         </div>
       </section>
 
-      {showRekap && <ModalRekap dark={dark} baris={barisTampil} onTutup={tutupRekap} />}
+      {showModalCetak && (
+        <ModalCetakLaporan
+          dark={dark}
+          hargaCetakAktif={hargaCetakAktif}
+          onTutup={() => setShowModalCetak(false)}
+        />
+      )}
+
+      {modalFilterMode && (
+        <ModalFilterLaporan
+          modeAwal={modalFilterMode}
+          dark={dark}
+          filterSaatIni={filterKustom}
+          onTutup={() => setModalFilterMode(null)}
+          onTerapkan={handleTerapkanFilter}
+          onReset={filterKustom ? handleResetFilter : undefined}
+        />
+      )}
     </div>
   );
 }

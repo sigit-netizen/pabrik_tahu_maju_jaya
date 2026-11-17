@@ -1,4 +1,5 @@
 export type ViewKey = "dashboard" | "input" | "ai" | "pengaturan";
+export type Mode = "harian" | "mingguan" | "bulanan";
 
 /* ---------- Bentuk respons API (dari route backend, bukan tebakan) ---------- */
 
@@ -45,6 +46,19 @@ export type BarisProduksi = {
   jumlah_masak: number;
   jumlah_pendapatan: number;
   jumlah_pendapatan_rupiah: string;
+  nama?: string;
+};
+
+/** GET /api/produksi/input — rincian pesanan per pelanggan dalam satu tanggal. */
+export type RincianPelanggan = {
+  id: number | string;
+  nama: string;
+  jumlah_cetak: number;
+  jumlah_masak: number;
+  total: number;
+  created_at: string;
+  tanggal?: string;
+  waktu_wib?: string;
 };
 
 export type Pagination = {
@@ -61,8 +75,23 @@ export type DetailHarianPrediksi = {
   estimasi_cetak: number;
 };
 
+export type Basis7HariInput = {
+  sumber_data: string;
+  rentang_7_hari: string;
+  jumlah_hari_digunakan: number;
+  rincian_per_hari: Array<{
+    urutan_hari: number;
+    tanggal: string;
+    hari: string;
+    jumlah_masak: number;
+    jumlah_cetak: number;
+    sumber?: string;
+  }>;
+};
+
 export type Prediksi = {
   id: string | number;
+  mode?: "simulasi" | "database";
   tanggal_prediksi?: string;
   periode_mulai: string;
   periode_selesai: string;
@@ -72,6 +101,7 @@ export type Prediksi = {
   model_version?: string;
   catatan_model?: string;
   detail_harian?: DetailHarianPrediksi[];
+  basis_7_hari_input?: Basis7HariInput;
 };
 
 /** GET /api/proxy/me */
