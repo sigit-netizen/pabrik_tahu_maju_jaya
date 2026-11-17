@@ -235,7 +235,9 @@ export async function POST(request: Request) {
         jumlah_cetak: Number(item.jumlah_cetak),
         jumlah_masak: Number(item.jumlah_masak),
         total: totalBaris,
-        created_at: timestampWib, // Set eksplisit timestamp WIB ke kolom timestamptz
+        sisa: totalBaris,                     // Otomatis sisa = total saat pesanan baru masuk
+        status_pembayaran: 'Belum lunas',     // Otomatis status_pembayaran = 'Belum lunas'
+        created_at: timestampWib,             // Set eksplisit timestamp WIB ke kolom timestamptz
       };
     });
 
@@ -302,15 +304,27 @@ export async function POST(request: Request) {
           tanggal: tanggalWib,
           waktu_wib: formatToWibDisplay(timestampWib),
           header: savedHeader,
-          rincian: (savedRincian || []).map((row) => ({
-            ...row,
-            tanggal: tanggalWib,
-            total_rupiah: new Intl.NumberFormat('id-ID', {
-              style: 'currency',
-              currency: 'IDR',
-              minimumFractionDigits: 0,
-            }).format(Number(row.total) || 0),
-          })),
+          rincian: (savedRincian || []).map((row) => {
+            const sisaVal = row.sisa !== null && row.sisa !== undefined ? Number(row.sisa) : Number(row.total);
+            const statusBayar = row.status_pembayaran || (sisaVal === 0 ? 'Lunas' : 'Belum lunas');
+            return {
+              ...row,
+              tanggal: tanggalWib,
+              total: Number(row.total),
+              total_rupiah: new Intl.NumberFormat('id-ID', {
+                style: 'currency',
+                currency: 'IDR',
+                minimumFractionDigits: 0,
+              }).format(Number(row.total) || 0),
+              sisa: sisaVal,
+              sisa_rupiah: new Intl.NumberFormat('id-ID', {
+                style: 'currency',
+                currency: 'IDR',
+                minimumFractionDigits: 0,
+              }).format(sisaVal),
+              status_pembayaran: statusBayar,
+            };
+          }),
           ringkasan: {
             tanggal: tanggalWib,
             total_pelanggan: rincian.length,
@@ -406,12 +420,20 @@ export async function GET(request: Request) {
         minimumFractionDigits: 0,
       }).format(val || 0);
 
-    const rincianFormatted = (rincianHariIni || []).map((row) => ({
-      ...row,
-      tanggal: formatToWibDate(row.created_at),
-      waktu_wib: formatToWibDisplay(row.created_at),
-      total_rupiah: formatRupiah(Number(row.total) || 0),
-    }));
+    const rincianFormatted = (rincianHariIni || []).map((row) => {
+      const sisaVal = row.sisa !== null && row.sisa !== undefined ? Number(row.sisa) : Number(row.total);
+      const statusBayar = row.status_pembayaran || (sisaVal === 0 ? 'Lunas' : 'Belum lunas');
+      return {
+        ...row,
+        tanggal: formatToWibDate(row.created_at),
+        waktu_wib: formatToWibDisplay(row.created_at),
+        total: Number(row.total),
+        total_rupiah: formatRupiah(Number(row.total) || 0),
+        sisa: sisaVal,
+        sisa_rupiah: formatRupiah(sisaVal),
+        status_pembayaran: statusBayar,
+      };
+    });
 
     return NextResponse.json({
       status: 'success',
