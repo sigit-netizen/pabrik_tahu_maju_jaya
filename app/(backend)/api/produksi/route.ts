@@ -87,21 +87,81 @@ export async function GET(request: Request) {
     const total = count || 0;
     const totalPages = Math.ceil(total / limit);
 
-    // Format data dengan tambahan field tanggal WIB dan format Rupiah
-    const formattedData = (data || []).map((row) => ({
-      id: row.id,
-      created_at: row.created_at,
-      tanggal: formatToWibDate(row.created_at),
-      waktu_wib: formatToWibDisplay(row.created_at),
-      jumlah_cetak: Number(row.jumlah_cetak) || 0,
-      jumlah_masak: Number(row.jumlah_masak) || 0,
-      jumlah_pendapatan: Number(row.jumlah_pendapatan) || 0,
-      jumlah_pendapatan_rupiah: new Intl.NumberFormat('id-ID', {
-        style: 'currency',
-        currency: 'IDR',
-        minimumFractionDigits: 0,
-      }).format(Number(row.jumlah_pendapatan) || 0),
-    }));
+    // Ambil rincian pesanan dari rincian_product_harian berdasarkan created_at
+    const timestamps = (data || []).map((r) => r.created_at).filter(Boolean);
+    const rincianMap: Record<string, any[]> = {};
+    if (timestamps.length > 0) {
+      const { data: rincianRows } = await supabase
+        .from('rincian_product_harian')
+        .select('id, created_at, nama, jumlah_cetak, jumlah_masak, total, sisa, status_pembayaran')
+        .in('created_at', timestamps);
+
+      if (rincianRows) {
+        for (const r of rincianRows) {
+          if (!rincianMap[r.created_at]) rincianMap[r.created_at] = [];
+          rincianMap[r.created_at].push(r);
+        }
+      }
+    }
+
+    // Format data dengan tambahan field tanggal WIB, rincian pelanggan, sisa, status pembayaran, dan format Rupiah
+    const formattedData = (data || []).map((row) => {
+      const matchingRincians = rincianMap[row.created_at] || [];
+      const firstRincian = matchingRincians[0];
+      const totalHarga = Number(row.jumlah_pendapatan) || 0;
+
+      const totalSisa = matchingRincians.length > 0
+        ? matchingRincians.reduce(
+            (sum, item) =>
+              sum +
+              (item.sisa !== null && item.sisa !== undefined
+                ? Number(item.sisa)
+                : Number(item.total)),
+            0
+          )
+        : totalHarga;
+
+      const allLunas =
+        matchingRincians.length > 0 &&
+        matchingRincians.every((item) => item.status_pembayaran === 'Lunas');
+
+      const statusBaru =
+        totalSisa === 0 || allLunas ? 'Lunas' : 'Belum lunas';
+
+      const namaList = matchingRincians
+        .map((item) => item.nama)
+        .filter(Boolean);
+
+      return {
+        id: row.id,
+        rincian_id: firstRincian ? firstRincian.id : null,
+        created_at: row.created_at,
+        tanggal: formatToWibDate(row.created_at),
+        waktu_wib: formatToWibDisplay(row.created_at),
+        nama: namaList.join(', ') || '-',
+        jumlah_cetak: Number(row.jumlah_cetak) || 0,
+        jumlah_masak: Number(row.jumlah_masak) || 0,
+        total: totalHarga,
+        total_rupiah: new Intl.NumberFormat('id-ID', {
+          style: 'currency',
+          currency: 'IDR',
+          minimumFractionDigits: 0,
+        }).format(totalHarga),
+        jumlah_pendapatan: totalHarga,
+        jumlah_pendapatan_rupiah: new Intl.NumberFormat('id-ID', {
+          style: 'currency',
+          currency: 'IDR',
+          minimumFractionDigits: 0,
+        }).format(totalHarga),
+        sisa: totalSisa,
+        sisa_rupiah: new Intl.NumberFormat('id-ID', {
+          style: 'currency',
+          currency: 'IDR',
+          minimumFractionDigits: 0,
+        }).format(totalSisa),
+        status_pembayaran: firstRincian?.status_pembayaran || statusBaru,
+      };
+    });
 
     return NextResponse.json({
       status: 'success',

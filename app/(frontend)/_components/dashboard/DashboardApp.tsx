@@ -417,6 +417,7 @@ export default function DashboardApp() {
                 mode={mode}
                 setMode={setMode}
                 onTotalsChange={handleTotalsChange}
+                onToast={onToast}
               />
             </div>
           )}

@@ -39,6 +39,7 @@ export type DashboardData = {
 /** GET /api/produksi */
 export type BarisProduksi = {
   id: number | string;
+  rincian_id?: number | null;
   created_at: string;
   tanggal: string;
   waktu_wib?: string;
@@ -47,6 +48,11 @@ export type BarisProduksi = {
   jumlah_pendapatan: number;
   jumlah_pendapatan_rupiah: string;
   nama?: string;
+  total?: number;
+  total_rupiah?: string;
+  sisa?: number;
+  sisa_rupiah?: string;
+  status_pembayaran?: string;
 };
 
 /** GET /api/produksi/input — rincian pesanan per pelanggan dalam satu tanggal. */

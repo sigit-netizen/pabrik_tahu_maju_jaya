@@ -172,74 +172,99 @@ function KotakGagal({
  * Menggantikan sistem centang manual dengan form pengisian nominal dan tombol "Kirim".
  * Mendukung input nominal Rupiah langsung (mis. 500000 atau 1008000) maupun jumlah cetak (mis. 24).
  * Menampilkan badge status: Lunas (hijau), Cicil (oranye), atau Belum lunas (merah/abu).
+ * Terhubung langsung ke API `/api/produksi/rincian/[id]/bayar` dan database Supabase.
  */
 function FormStatusBayar({
   id,
+  rincianId,
   jumlahCetak,
   totalHarga,
   hargaCetakAktif,
+  sisaDb,
+  statusDb,
   dataBayar,
   onKirim,
   dark,
 }: {
   id: string;
+  rincianId?: string;
   jumlahCetak: number;
   totalHarga: number;
   hargaCetakAktif: number;
-  dataBayar?: { lunas: boolean; cicil: boolean; cetakDibayar: number; nominalRupiah?: number };
-  onKirim: (id: string, nominalRupiah: number, cetakDibayar: number, lunas: boolean, cicil: boolean) => void;
+  sisaDb?: number;
+  statusDb?: string;
+  dataBayar?: {
+    lunas: boolean;
+    cicil: boolean;
+    cetakDibayar: number;
+    nominalRupiah?: number;
+    sisa?: number;
+  };
+  onKirim: (
+    id: string,
+    rincianId: string | undefined,
+    nominalRupiah: number,
+    cetakDibayar: number,
+    lunas: boolean,
+    cicil: boolean
+  ) => Promise<boolean | void>;
   dark: boolean;
 }) {
+  const sisaEfektif =
+    dataBayar?.sisa !== undefined
+      ? dataBayar.sisa
+      : sisaDb !== undefined && sisaDb !== null
+      ? sisaDb
+      : totalHarga;
+
+  const isLunas = dataBayar?.lunas ?? (statusDb === "Lunas" || sisaEfektif <= 0);
+  const isCicil =
+    dataBayar?.cicil ?? (!isLunas && sisaEfektif < totalHarga && sisaEfektif > 0);
+
   const nominalTerbayar =
-    dataBayar?.nominalRupiah ??
-    (dataBayar?.cetakDibayar ? dataBayar.cetakDibayar * hargaCetakAktif : 0);
+    dataBayar?.nominalRupiah ?? Math.max(0, totalHarga - sisaEfektif);
 
   const [editedVal, setEditedVal] = useState<string | null>(null);
+  const [sedangKirim, setSedangKirim] = useState(false);
   const [tersimpan, setTersimpan] = useState(false);
 
-  // Nilai input: saat sedang diedit tampilkan editedVal; jika tidak, tampilkan format ribuan jika sudah ada pembayaran
-  const inputVal = editedVal ?? (nominalTerbayar > 0 ? formatRibuan(nominalTerbayar) : "");
+  // Nilai input: saat sedang diedit tampilkan editedVal; jika tidak, tampilkan string kosong
+  const inputVal = editedVal ?? "";
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const cleanDigits = (editedVal ?? (nominalTerbayar > 0 ? String(nominalTerbayar) : "")).replace(/[^\d]/g, "");
+    const cleanDigits = (editedVal ?? "").replace(/[^\d]/g, "");
     const rawVal = cleanDigits ? parseInt(cleanDigits, 10) : 0;
+
+    if (rawVal <= 0) return;
 
     let nominalRupiah = 0;
     let cetakDibayar = 0;
-    let lunas = false;
-    let cicil = false;
 
-    if (rawVal === 0) {
-      nominalRupiah = 0;
-      cetakDibayar = 0;
-      lunas = false;
-      cicil = false;
-    } else if (rawVal <= jumlahCetak && rawVal > 0) {
+    if (rawVal <= jumlahCetak && rawVal > 0 && hargaCetakAktif > 0) {
       // Jika angka kecil (<= jumlah cetak), diperlakukan sebagai jumlah cetak yang dibayar
       cetakDibayar = rawVal;
-      nominalRupiah = hargaCetakAktif > 0 ? rawVal * hargaCetakAktif : rawVal;
-      lunas = cetakDibayar >= jumlahCetak && jumlahCetak > 0;
-      cicil = cetakDibayar > 0 && !lunas;
+      nominalRupiah = rawVal * hargaCetakAktif;
     } else {
-      // Jika angka lebih besar dari jumlah cetak, diperlakukan sebagai nominal Rupiah langsung
+      // Nominal Rupiah langsung
       nominalRupiah = rawVal;
       cetakDibayar =
         hargaCetakAktif > 0
           ? Math.min(jumlahCetak, Math.round(rawVal / hargaCetakAktif))
           : 0;
-      lunas = nominalRupiah >= totalHarga && totalHarga > 0;
-      cicil = nominalRupiah > 0 && !lunas;
     }
 
-    onKirim(id, nominalRupiah, cetakDibayar, lunas, cicil);
+    const sisaBaruPreview = Math.max(0, sisaEfektif - nominalRupiah);
+    const lunasPreview = sisaBaruPreview <= 0;
+    const cicilPreview = !lunasPreview && sisaBaruPreview < totalHarga;
+
+    setSedangKirim(true);
+    await onKirim(id, rincianId, nominalRupiah, cetakDibayar, lunasPreview, cicilPreview);
+    setSedangKirim(false);
     setEditedVal(null);
     setTersimpan(true);
-    setTimeout(() => setTersimpan(false), 1500);
+    setTimeout(() => setTersimpan(false), 2000);
   }
-
-  const isLunas = dataBayar?.lunas ?? false;
-  const isCicil = dataBayar?.cicil ?? false;
 
   const badgeClass = isLunas
     ? dark
@@ -284,30 +309,27 @@ function FormStatusBayar({
             inputMode="numeric"
             value={inputVal}
             onChange={(e) => setEditedVal(e.target.value.replace(/[^\d.,]/g, ""))}
-            onFocus={() => {
-              if (editedVal === null && nominalTerbayar > 0) {
-                setEditedVal(String(nominalTerbayar));
-              }
-            }}
             onBlur={() => {
-              if (editedVal !== null) {
+              if (editedVal !== null && editedVal !== "") {
                 const digits = editedVal.replace(/[^\d]/g, "");
                 setEditedVal(digits ? formatRibuan(parseInt(digits, 10)) : "");
               }
             }}
-            placeholder="0"
+            placeholder={isLunas ? "0 (Lunas)" : sisaEfektif > 0 ? formatRibuan(sisaEfektif) : "0"}
             aria-label={`Nominal bayar baris ID ${id}`}
+            disabled={sedangKirim}
             className={`h-7 w-full rounded-lg border pl-7 pr-2 text-right font-mono text-[11px] font-bold tabular-nums transition-colors focus:border-brand focus:outline-none ${
               dark
                 ? "border-cream/15 bg-pine-deep text-cream placeholder:text-cream/30 focus:bg-pine"
                 : "border-line-strong bg-white text-pine placeholder:text-pine/30 focus:bg-white"
-            }`}
+            } ${isLunas ? "opacity-75" : ""}`}
           />
         </div>
 
         <button
           type="submit"
-          className={`btn-press flex h-7 items-center justify-center rounded-lg px-2.5 text-[11px] font-bold transition-all shadow-xs cursor-pointer shrink-0 ${
+          disabled={sedangKirim || (editedVal === null || editedVal === "")}
+          className={`btn-press flex h-7 items-center justify-center rounded-lg px-2.5 text-[11px] font-bold transition-all shadow-xs cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${
             tersimpan
               ? "bg-emerald-600 text-white"
               : dark
@@ -316,7 +338,7 @@ function FormStatusBayar({
           }`}
           title="Kirim dan simpan nominal pembayaran"
         >
-          {tersimpan ? "✓ Disimpan" : "Kirim"}
+          {sedangKirim ? "..." : tersimpan ? "✓ Disimpan" : "Kirim"}
         </button>
       </form>
     </div>
@@ -330,11 +352,13 @@ export default function DashboardView({
   mode,
   setMode,
   onTotalsChange,
+  onToast,
 }: {
   dark: boolean;
   mode: Mode;
   setMode: (v: Mode) => void;
   onTotalsChange: (cetak: number, pendapatan: number) => void;
+  onToast?: (msg: string) => void;
 }) {
   const s = skin(dark);
   const [q, setQ] = useState("");
@@ -364,7 +388,7 @@ export default function DashboardView({
 
   /* Status pembayaran (tersimpan di frontend / localStorage) */
   const [pembayaran, setPembayaran] = useState<
-    Record<string, { lunas: boolean; cicil: boolean; cetakDibayar: number; nominalRupiah?: number }>
+    Record<string, { lunas: boolean; cicil: boolean; cetakDibayar: number; nominalRupiah?: number; sisa?: number }>
   >(() => {
     if (typeof window === "undefined") return {};
     try {
@@ -396,11 +420,14 @@ export default function DashboardView({
   const handleSimpanPembayaran = useCallback(
     async (
       id: string,
+      rincianId: string | undefined,
       nominalRupiah: number,
       cetakDibayar: number,
       lunas: boolean,
       cicil: boolean
     ) => {
+      const targetId = rincianId || id;
+
       // 1. Simpan sementara ke state lokal agar UI langsung responsif
       setPembayaran((prev) => ({
         ...prev,
@@ -409,37 +436,80 @@ export default function DashboardView({
           cicil,
           cetakDibayar,
           nominalRupiah,
+          sisa: lunas ? 0 : undefined,
         },
       }));
 
       // 2. Kirim aksi pembayaran ke backend API untuk update tabel rincian_product_harian
       try {
-        const res = await fetch(`/api/produksi/rincian/${id}/bayar`, {
+        const res = await fetch(`/api/produksi/rincian/${targetId}/bayar`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ bayar: nominalRupiah }),
+          body: JSON.stringify({
+            bayar: nominalRupiah,
+            rincian_id: rincianId ? parseInt(rincianId, 10) : undefined,
+          }),
         });
         const resJson = await res.json().catch(() => null);
         if (res.ok && resJson?.status === "success" && resJson.data) {
           const d = resJson.data;
-          const isLunas = d.status_pembayaran === "Lunas";
-          const hargaSatuan = (d.jumlah_cetak > 0 && d.total > 0) ? (d.total / d.jumlah_cetak) : 0;
+          const isLunas = d.status_pembayaran === "Lunas" || d.sisa <= 0;
+          const hargaSatuan =
+            d.jumlah_cetak > 0 && d.total > 0 ? d.total / d.jumlah_cetak : 0;
+
           setPembayaran((prev) => ({
             ...prev,
             [id]: {
               lunas: isLunas,
               cicil: !isLunas && d.sisa < d.total,
-              cetakDibayar: hargaSatuan > 0 ? Math.round((d.total - d.sisa) / hargaSatuan) : 0,
+              cetakDibayar:
+                hargaSatuan > 0
+                  ? Math.round((d.total - d.sisa) / hargaSatuan)
+                  : 0,
               nominalRupiah: d.total - d.sisa,
+              sisa: d.sisa,
             },
           }));
+
+          // Update langsung baris di state tabel agar seketika sinkron dengan DB
+          setMuatanBaris((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              baris: prev.baris.map((b) => {
+                if (
+                  String(b.id) === String(id) ||
+                  (b.rincian_id && String(b.rincian_id) === String(targetId)) ||
+                  (d.id && String(b.rincian_id) === String(d.id))
+                ) {
+                  return {
+                    ...b,
+                    sisa: d.sisa,
+                    sisa_rupiah: d.sisa_rupiah,
+                    status_pembayaran: d.status_pembayaran,
+                  };
+                }
+                return b;
+              }),
+            };
+          });
+
+          if (resJson.message && onToast) {
+            onToast(resJson.message);
+          }
+          return true;
+        } else if (resJson?.message && onToast) {
+          onToast(resJson.message);
         }
       } catch (err) {
         console.warn("[pembayaran] Gagal mengirim aksi pembayaran ke API:", err);
+        if (onToast) {
+          onToast("Gagal menghubungi server saat menyimpan pembayaran.");
+        }
       }
     },
-    []
+    [onToast]
   );
 
   /* Nama pelanggan per tanggal rekap. Header rekap (/api/produksi) tidak
@@ -666,16 +736,21 @@ export default function DashboardView({
     if (!kunci) return barisUntukCetak;
     return barisUntukCetak.filter((r) => {
       const idStr = String(r.id).toLowerCase();
+      const rincianIdStr = r.rincian_id ? String(r.rincian_id).toLowerCase() : "";
       const tglStr = (r.tanggal || "").toLowerCase();
       const waktuStr = (r.waktu_wib || "").toLowerCase();
+      const namaDirect = (r.nama || "").toLowerCase();
       const pelangganList = namaPelanggan(r.created_at).join(" ").toLowerCase();
-      const isLunas = pembayaran[String(r.id)]?.lunas;
-      const isCicil = pembayaran[String(r.id)]?.cicil;
+      const sisaVal = pembayaran[String(r.id)]?.sisa ?? r.sisa;
+      const isLunas = (pembayaran[String(r.id)]?.lunas ?? r.status_pembayaran === "Lunas") || sisaVal === 0;
+      const isCicil = pembayaran[String(r.id)]?.cicil ?? (!isLunas && sisaVal !== undefined && sisaVal > 0 && sisaVal < (r.total ?? 0));
       const statusStr = isLunas ? "lunas" : isCicil ? "cicil" : "belum lunas";
       return (
         idStr.includes(kunci) ||
+        rincianIdStr.includes(kunci) ||
         tglStr.includes(kunci) ||
         waktuStr.includes(kunci) ||
+        namaDirect.includes(kunci) ||
         pelangganList.includes(kunci) ||
         statusStr.includes(kunci)
       );
@@ -691,7 +766,7 @@ export default function DashboardView({
     [barisTampil],
   );
   const totalHargaTampil = useMemo(
-    () => barisTampil.reduce((a, b) => a + (Number(b.jumlah_cetak) * hargaCetakAktif || 0), 0),
+    () => barisTampil.reduce((a, b) => a + (b.total ?? (Number(b.jumlah_cetak) * hargaCetakAktif || 0)), 0),
     [barisTampil, hargaCetakAktif],
   );
 
@@ -699,13 +774,27 @@ export default function DashboardView({
   const totalNominalDibayarTampil = useMemo(() => {
     return barisTampil.reduce((acc, r) => {
       const bayar = pembayaran[String(r.id)];
+      if (bayar && bayar.nominalRupiah !== undefined) return acc + bayar.nominalRupiah;
+      if (r.sisa !== undefined && r.sisa !== null) {
+        const total = r.total ?? (Number(r.jumlah_cetak) * hargaCetakAktif);
+        return acc + Math.max(0, total - Number(r.sisa));
+      }
       if (!bayar) return acc;
       const nominal = bayar.nominalRupiah ?? (bayar.cetakDibayar * hargaCetakAktif);
       return acc + nominal;
     }, 0);
   }, [barisTampil, pembayaran, hargaCetakAktif]);
 
-  const totalSisaBelumLunasTampil = Math.max(0, totalHargaTampil - totalNominalDibayarTampil);
+  const totalSisaBelumLunasTampil = useMemo(() => {
+    return barisTampil.reduce((acc, r) => {
+      const info = pembayaran[String(r.id)];
+      if (info?.sisa !== undefined) return acc + info.sisa;
+      if (r.sisa !== undefined && r.sisa !== null) return acc + Number(r.sisa);
+      const total = r.total ?? (Number(r.jumlah_cetak) * hargaCetakAktif);
+      const dibayar = info?.nominalRupiah ?? ((info?.cetakDibayar ?? 0) * hargaCetakAktif);
+      return acc + Math.max(0, total - dibayar);
+    }, 0);
+  }, [barisTampil, pembayaran, hargaCetakAktif]);
 
   function pindahTab(e: KeyboardEventReact<HTMLButtonElement>) {
     const ini = TABS.findIndex((t) => t.key === mode);
@@ -995,28 +1084,37 @@ export default function DashboardView({
                       <td className="px-4 py-3 text-right tabular-nums font-semibold">
                         {(() => {
                           const info = pembayaran[String(r.id)];
+                          if (info?.sisa !== undefined) return rupiah(info.sisa);
+                          if (r.sisa !== undefined && r.sisa !== null) return rupiah(r.sisa);
+                          const total = r.total ?? (Number(r.jumlah_cetak) * hargaCetakAktif);
                           const dibayar = info?.nominalRupiah ?? ((info?.cetakDibayar ?? 0) * hargaCetakAktif);
-                          const total = Number(r.jumlah_cetak) * hargaCetakAktif;
                           const sisa = Math.max(0, total - dibayar);
                           return rupiah(sisa);
                         })()}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums">{Number(r.jumlah_masak)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{rupiah(Number(r.jumlah_cetak) * hargaCetakAktif)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{rupiah(r.total ?? (Number(r.jumlah_cetak) * hargaCetakAktif))}</td>
                       <td className="px-4 py-3 align-middle">
                         <FormStatusBayar
                           id={String(r.id)}
+                          rincianId={r.rincian_id ? String(r.rincian_id) : undefined}
                           jumlahCetak={Number(r.jumlah_cetak)}
-                          totalHarga={Number(r.jumlah_cetak) * hargaCetakAktif}
+                          totalHarga={r.total ?? (Number(r.jumlah_cetak) * hargaCetakAktif)}
                           hargaCetakAktif={hargaCetakAktif}
+                          sisaDb={r.sisa}
+                          statusDb={r.status_pembayaran}
                           dataBayar={pembayaran[String(r.id)]}
                           onKirim={handleSimpanPembayaran}
                           dark={dark}
                         />
                       </td>
                       <td className="px-4 py-3 text-[13px]">
-                        {namaPelanggan(r.created_at).length > 0 ? (
-                          <span className="block max-w-[220px] truncate" title={namaPelanggan(r.created_at).join(", ")}>
+                        {r.nama && r.nama !== "-" ? (
+                          <span className="block max-w-[220px] truncate font-medium" title={r.nama}>
+                            {r.nama}
+                          </span>
+                        ) : namaPelanggan(r.created_at).length > 0 ? (
+                          <span className="block max-w-[220px] truncate font-medium" title={namaPelanggan(r.created_at).join(", ")}>
                             {namaPelanggan(r.created_at).join(", ")}
                           </span>
                         ) : (
