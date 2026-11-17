@@ -282,7 +282,7 @@ function FormStatusBayar({
 
   return (
     <div className="flex flex-col gap-1.5 py-1 min-w-[210px]">
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 flex-wrap">
         <span
           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold border transition-colors ${badgeClass}`}
         >
@@ -294,6 +294,20 @@ function FormStatusBayar({
           >
             {isLunas ? "(Lunas penuh)" : `(Masuk: ${rupiah(nominalTerbayar)})`}
           </span>
+        )}
+        {sisaEfektif > 0 && !isLunas && (
+          <button
+            type="button"
+            onClick={() => setEditedVal(formatRibuan(sisaEfektif))}
+            title={`Klik untuk otomatis mengisi sisa tagihan: Rp ${formatRibuan(sisaEfektif)}`}
+            className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded transition-colors cursor-pointer border ${
+              dark
+                ? "border-amber-400/30 bg-amber-400/10 text-amber-300 hover:bg-amber-400/20"
+                : "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+            }`}
+          >
+            Pas: {formatRibuan(sisaEfektif)}
+          </button>
         )}
       </div>
 
@@ -308,27 +322,33 @@ function FormStatusBayar({
             type="text"
             inputMode="numeric"
             value={inputVal}
-            onChange={(e) => setEditedVal(e.target.value.replace(/[^\d.,]/g, ""))}
-            onBlur={() => {
-              if (editedVal !== null && editedVal !== "") {
-                const digits = editedVal.replace(/[^\d]/g, "");
-                setEditedVal(digits ? formatRibuan(parseInt(digits, 10)) : "");
+            onChange={(e) => {
+              const digits = e.target.value.replace(/[^\d]/g, "");
+              if (!digits) {
+                setEditedVal("");
+                return;
               }
+              const num = parseInt(digits, 10);
+              if (num === 0) {
+                setEditedVal("");
+                return;
+              }
+              setEditedVal(formatRibuan(num));
             }}
             placeholder={isLunas ? "0 (Lunas)" : sisaEfektif > 0 ? formatRibuan(sisaEfektif) : "0"}
             aria-label={`Nominal bayar baris ID ${id}`}
-            disabled={sedangKirim}
+            disabled={sedangKirim || isLunas}
             className={`h-7 w-full rounded-lg border pl-7 pr-2 text-right font-mono text-[11px] font-bold tabular-nums transition-colors focus:border-brand focus:outline-none ${
               dark
                 ? "border-cream/15 bg-pine-deep text-cream placeholder:text-cream/30 focus:bg-pine"
                 : "border-line-strong bg-white text-pine placeholder:text-pine/30 focus:bg-white"
-            } ${isLunas ? "opacity-75" : ""}`}
+            } ${isLunas ? "opacity-60 cursor-not-allowed" : ""}`}
           />
         </div>
 
         <button
           type="submit"
-          disabled={sedangKirim || (editedVal === null || editedVal === "")}
+          disabled={sedangKirim || isLunas || (editedVal === null || editedVal === "")}
           className={`btn-press flex h-7 items-center justify-center rounded-lg px-2.5 text-[11px] font-bold transition-all shadow-xs cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${
             tersimpan
               ? "bg-emerald-600 text-white"
