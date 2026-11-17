@@ -55,7 +55,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
-    const limit = Math.max(1, Math.min(100, parseInt(searchParams.get('limit') || '10', 10)));
+    const limit = Math.max(1, Math.min(1000, parseInt(searchParams.get('limit') || '10', 10)));
     const startDate = searchParams.get('start_date');
     const endDate = searchParams.get('end_date');
 

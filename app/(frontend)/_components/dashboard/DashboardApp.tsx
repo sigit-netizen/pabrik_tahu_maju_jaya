@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AiView from "./AiView";
@@ -71,6 +71,11 @@ export default function DashboardApp() {
   const [diperbarui, setDiperbarui] = useState<Date | null>(null);
 
   const s = skin(dark);
+
+  const handleTotalsChange = useCallback((cetak: number, pendapatan: number) => {
+    setTotalCetakFilter(cetak);
+    setTotalPendapatanFilter(pendapatan);
+  }, []);
 
   function onToast(msg: string) {
     setToast(msg);
@@ -411,10 +416,7 @@ export default function DashboardApp() {
                 dark={dark}
                 mode={mode}
                 setMode={setMode}
-                onTotalsChange={(cetak, pendapatan) => {
-                  setTotalCetakFilter(cetak);
-                  setTotalPendapatanFilter(pendapatan);
-                }}
+                onTotalsChange={handleTotalsChange}
               />
             </div>
           )}

@@ -75,8 +75,23 @@ export type DetailHarianPrediksi = {
   estimasi_cetak: number;
 };
 
+export type Basis7HariInput = {
+  sumber_data: string;
+  rentang_7_hari: string;
+  jumlah_hari_digunakan: number;
+  rincian_per_hari: Array<{
+    urutan_hari: number;
+    tanggal: string;
+    hari: string;
+    jumlah_masak: number;
+    jumlah_cetak: number;
+    sumber?: string;
+  }>;
+};
+
 export type Prediksi = {
   id: string | number;
+  mode?: "simulasi" | "database";
   tanggal_prediksi?: string;
   periode_mulai: string;
   periode_selesai: string;
@@ -86,6 +101,7 @@ export type Prediksi = {
   model_version?: string;
   catatan_model?: string;
   detail_harian?: DetailHarianPrediksi[];
+  basis_7_hari_input?: Basis7HariInput;
 };
 
 /** GET /api/proxy/me */

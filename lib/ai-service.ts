@@ -316,7 +316,7 @@ export async function getHariProduksiDb(
     const [ay, am, ad] = targetDateStr.split('-').map(Number);
 
     const startDate = new Date(Date.UTC(ay, am - 1, ad));
-    startDate.setUTCDate(startDate.getUTCDate() - 30);
+    startDate.setUTCDate(startDate.getUTCDate() - 90);
     const startIso = startDate.toISOString();
 
     const endDate = new Date(Date.UTC(ay, am - 1, ad));
@@ -562,64 +562,110 @@ export async function calculateAiPrediction(
       fiturDict['bulan'] = bulan;
     }
 
-    // ── JALUR C: MODE DATABASE RIIL (STRICT 7 HARI) ───────────────────────────
+    // ── JALUR C: MODE DATABASE RIIL (7 HARI KE BELAKANG DARI TANGGAL ACUAN) ────
     else {
       const anchorDate = options.tanggal || getWibTodayDate();
       const allDbRows = await getHariProduksiDb(anchorDate);
       const filtered = allDbRows.filter((r) => r.tanggal <= anchorDate);
 
-      if (filtered.length < 7) {
-        const daftarTgl = filtered.map((r) => r.tanggal);
+      // Bentuk 7 hari kalender berturut-turut yang berakhir di anchorDate (T-6 s/d T)
+      const [ay, am, ad] = anchorDate.split('-').map(Number);
+      const calendar7Days: Array<{ tanggal: string; dateObj: Date }> = [];
+      for (let i = 1; i <= 7; i++) {
+        const dI = new Date(Date.UTC(ay, am - 1, ad));
+        dI.setUTCDate(dI.getUTCDate() - (7 - i));
+        calendar7Days.push({
+          tanggal: formatDateToIso(dI),
+          dateObj: dI,
+        });
+      }
+
+      // Buat map tanggal -> data DB
+      const dbMap = new Map<string, { jumlah_masak: number; jumlah_cetak: number }>();
+      for (const row of allDbRows) {
+        dbMap.set(row.tanggal, {
+          jumlah_masak: Number(row.jumlah_masak) || 0,
+          jumlah_cetak: Number(row.jumlah_cetak) || 0,
+        });
+      }
+
+      // Hitung apakah rentang 7 hari kalender memiliki data di DB
+      const calendarHits = calendar7Days.filter((cd) => dbMap.has(cd.tanggal) && (dbMap.get(cd.tanggal)!.jumlah_cetak > 0));
+
+      if (calendarHits.length > 0) {
+        // Gunakan 7 hari kalender ke belakang (T-6 s/d T)
+        sumberDeskripsi = `Data Riil Database (7 Hari Kalender ke Belakang: ${calendar7Days[0].tanggal} s/d ${calendar7Days[6].tanggal})`;
+        for (let i = 1; i <= 7; i++) {
+          const cd = calendar7Days[i - 1];
+          const dbItem = dbMap.get(cd.tanggal);
+          const m = dbItem ? dbItem.jumlah_masak : 0;
+          const c = dbItem ? dbItem.jumlah_cetak : 0;
+
+          fiturDict[`masak_${i}`] = m;
+          fiturDict[`cetak_${i}`] = c;
+          rincian7Hari.push({
+            urutan_hari: i,
+            tanggal: cd.tanggal,
+            hari: NAMA_HARI_MAP[cd.dateObj.getUTCDay()],
+            jumlah_masak: m,
+            jumlah_cetak: c,
+            sumber: dbItem ? 'Data Riil Database' : '0 (Tidak Ada Catatan / Libur)',
+          });
+        }
+      } else if (filtered.length > 0) {
+        // Jika 7 hari kalender tepat kosong, gunakan catatan produksi historis yang ada di database
+        sumberDeskripsi = 'Data Riil Database (Catatan Produksi Historis Terakhir)';
+        const availableRows = [...filtered];
+        // Jika kurang dari 7 baris, pad di awal agar genap 7 baris observasi model
+        while (availableRows.length < 7) {
+          const firstRow = availableRows[0] || { tanggal: anchorDate, jumlah_masak: 0, jumlah_cetak: 0 };
+          const dPad = new Date(parseDateLikeNotebook(firstRow.tanggal).date);
+          dPad.setDate(dPad.getDate() - (7 - availableRows.length));
+          availableRows.unshift({
+            tanggal: formatDateToIso(dPad),
+            jumlah_masak: firstRow.jumlah_masak,
+            jumlah_cetak: firstRow.jumlah_cetak,
+          });
+        }
+        const last7 = availableRows.slice(-7);
+        for (let i = 1; i <= 7; i++) {
+          const row = last7[i - 1];
+          const m = Number(row.jumlah_masak) || 0;
+          const c = Number(row.jumlah_cetak) || 0;
+          const dtObj = parseDateLikeNotebook(row.tanggal).date;
+
+          fiturDict[`masak_${i}`] = m;
+          fiturDict[`cetak_${i}`] = c;
+          rincian7Hari.push({
+            urutan_hari: i,
+            tanggal: row.tanggal,
+            hari: NAMA_HARI_MAP[dtObj.getDay()],
+            jumlah_masak: m,
+            jumlah_cetak: c,
+            sumber: 'Data Riil Database (Historis)',
+          });
+        }
+      } else {
         throw new AiValidationError(
-          `Data produksi di database belum mencukupi 7 hari (hanya ditemukan ${filtered.length} hari: ${JSON.stringify(daftarTgl)}). ` +
-          `Sesuai tahapan preprocessing pada notebook RandomForest_Tuning.ipynb, model membutuhkan tepat 7 hari data historis produksi (masak_1..7, cetak_1..7) untuk membentuk 1 window observasi. ` +
-          `Silakan lengkapi tabel product_harian atau gunakan endpoint simulasi (/api/ai/prediksi/simulasi) yang sudah memiliki data dummy siap pakai.`,
+          `Belum ada catatan produksi di database hingga tanggal ${anchorDate}. ` +
+          `Silakan masukkan data produksi terlebih dahulu melalui menu Input Produksi, atau gunakan tombol "Uji Data Dummy" untuk mencoba simulasi langsung.`,
           {
-            jumlah_hari_ditemukan: filtered.length,
-            jumlah_hari_dibutuhkan: 7,
-            tanggal_yang_ada: daftarTgl,
-            saran: 'Gunakan endpoint simulasi (/api/ai/prediksi/simulasi) yang sudah menyediakan data dummy 7 hari bawaan siap pakai.',
+            tanggal_acuan: anchorDate,
+            saran: 'Gunakan tombol Uji Data Dummy untuk pengujian instan dengan dataset bawaan.',
           }
         );
       }
 
-      const last7Days = filtered.slice(-7);
-      sumberDeskripsi = 'Data Riil Database Supabase (product_harian)';
-
-      for (let i = 1; i <= 7; i++) {
-        const row = last7Days[i - 1];
-        const m = Number(row.jumlah_masak) || 0;
-        const c = Number(row.jumlah_cetak) || 0;
-
-        if (c <= 0) {
-          throw new AiValidationError(
-            `Data produksi tanggal ${row.tanggal} (hari ke-${i}) memiliki jumlah cetak <= 0. Semua 7 hari harus memiliki data produksi yang valid untuk peramalan.`,
-            { tanggal: row.tanggal, urutan_hari: i }
-          );
-        }
-
-        const dtObj = parseDateLikeNotebook(row.tanggal).date;
-        fiturDict[`masak_${i}`] = m;
-        fiturDict[`cetak_${i}`] = c;
-        rincian7Hari.push({
-          urutan_hari: i,
-          tanggal: row.tanggal,
-          hari: NAMA_HARI_MAP[dtObj.getDay()],
-          jumlah_masak: m,
-          jumlah_cetak: c,
-          sumber: 'database_product_harian',
-        });
-      }
-
-      const lastDate = parseDateLikeNotebook(last7Days[6].tanggal).date;
-      const parsedWeekMonth = getIsoWeekAndMonth(lastDate);
+      // Hitung minggu_ke dan bulan dari anchorDate (hari ke-7)
+      const anchorDtObj = new Date(Date.UTC(ay, am - 1, ad));
+      const parsedWeekMonth = getIsoWeekAndMonth(anchorDtObj);
       mingguKe = parsedWeekMonth.isoWeek;
       bulan = parsedWeekMonth.month;
       fiturDict['minggu_ke'] = mingguKe;
       fiturDict['bulan'] = bulan;
 
-      targetDt = new Date(lastDate);
-      targetDt.setDate(targetDt.getDate() + 1);
+      targetDt = new Date(anchorDtObj);
+      targetDt.setUTCDate(targetDt.getUTCDate() + 1);
     }
 
     // ── EKSEKUSI ONNX RUNTIME (16 FITUR) ─────────────────────────────────────
