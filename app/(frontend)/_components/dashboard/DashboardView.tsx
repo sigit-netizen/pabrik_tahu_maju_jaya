@@ -394,13 +394,14 @@ export default function DashboardView({
   }, [pembayaran]);
 
   const handleSimpanPembayaran = useCallback(
-    (
+    async (
       id: string,
       nominalRupiah: number,
       cetakDibayar: number,
       lunas: boolean,
       cicil: boolean
     ) => {
+      // 1. Simpan sementara ke state lokal agar UI langsung responsif
       setPembayaran((prev) => ({
         ...prev,
         [id]: {
@@ -410,6 +411,33 @@ export default function DashboardView({
           nominalRupiah,
         },
       }));
+
+      // 2. Kirim aksi pembayaran ke backend API untuk update tabel rincian_product_harian
+      try {
+        const res = await fetch(`/api/produksi/rincian/${id}/bayar`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ bayar: nominalRupiah }),
+        });
+        const resJson = await res.json().catch(() => null);
+        if (res.ok && resJson?.status === "success" && resJson.data) {
+          const d = resJson.data;
+          const isLunas = d.status_pembayaran === "Lunas";
+          const hargaSatuan = (d.jumlah_cetak > 0 && d.total > 0) ? (d.total / d.jumlah_cetak) : 0;
+          setPembayaran((prev) => ({
+            ...prev,
+            [id]: {
+              lunas: isLunas,
+              cicil: !isLunas && d.sisa < d.total,
+              cetakDibayar: hargaSatuan > 0 ? Math.round((d.total - d.sisa) / hargaSatuan) : 0,
+              nominalRupiah: d.total - d.sisa,
+            },
+          }));
+        }
+      } catch (err) {
+        console.warn("[pembayaran] Gagal mengirim aksi pembayaran ke API:", err);
+      }
     },
     []
   );

@@ -247,6 +247,132 @@ Menu Produksi menangani pencatatan pesanan harian pelanggan, perhitungan tagihan
 
 ---
 
+#### H. Aksi Pembayaran Sisa Tagihan Pelanggan (Form Dashboard & Cicilan/Pelunasan)
+- **URL**: `POST /api/produksi/rincian/{id}/bayar` *(atau `PUT /api/produksi/rincian/{id}/bayar`)*
+- **Fungsi**: Digunakan saat admin mengisi kolom pembayaran `Rp [   ]` di baris tabel lalu mengklik tombol **"Kirim"**.
+- **Logika Sistem**:
+  1. API membaca sisa tagihan saat ini (`sisaSebelumnya`).
+  2. Menghitung pengurangan: `sisaSebelumnya - nominalBayar`.
+  3. **Jika hasil pengurangan $\le 0$ (lunas atau lebih bayar)**:
+     - `status_pembayaran` otomatis diupdate menjadi `'Lunas'`.
+     - `sisa` otomatis diisikan `0` *(tidak pernah minus)*.
+     - Mengembalikan nilai `kembalian` jika uang yang dibayarkan melebihi sisa.
+  4. **Jika hasil pengurangan $> 0$**:
+     - `status_pembayaran` tetap `'Belum lunas'`.
+     - `sisa` diupdate menjadi nominal sisa hasil pengurangan.
+- **Request Body**:
+```json
+{
+  "bayar": 500000
+}
+```
+*(Catatan: properti `nominal` atau `jumlah_bayar` juga dapat digunakan).*
+
+- **Respon Sukses (200 - Cicilan/Belum Lunas)**:
+```json
+{
+  "status": "success",
+  "message": "Pembayaran Rp 500.000 diterima. Sisa tagihan \"bu rudi\": Rp 508.000",
+  "data": {
+    "id": 23,
+    "nama": "bu rudi",
+    "tanggal": "2026-11-16",
+    "waktu_wib": "16 Nov 2026, 16:43 WIB",
+    "jumlah_cetak": 24,
+    "jumlah_masak": 4,
+    "total": 1008000,
+    "total_rupiah": "Rp 1.008.000",
+    "bayar_terbaru": 500000,
+    "bayar_terbaru_rupiah": "Rp 500.000",
+    "sisa_sebelumnya": 1008000,
+    "sisa_sebelumnya_rupiah": "Rp 1.008.000",
+    "sisa": 508000,
+    "sisa_rupiah": "Rp 508.000",
+    "status_pembayaran": "Belum lunas",
+    "kembalian": 0,
+    "kembalian_rupiah": "Rp 0"
+  }
+}
+```
+
+- **Respon Sukses (200 - Pelunasan)**:
+```json
+{
+  "status": "success",
+  "message": "Pembayaran Rp 508.000 diterima. Tagihan \"bu rudi\" LUNAS!",
+  "data": {
+    "id": 23,
+    "nama": "bu rudi",
+    "total": 1008000,
+    "total_rupiah": "Rp 1.008.000",
+    "sisa": 0,
+    "sisa_rupiah": "Rp 0",
+    "status_pembayaran": "Lunas",
+    "kembalian": 0,
+    "kembalian_rupiah": "Rp 0"
+  }
+}
+```
+
+---
+
+#### I. Ambil Daftar & Laporan Rincian Langsung dari DB (Tabel & Cetak Laporan)
+- **URL**: `GET /api/produksi/rincian` *(alias: `GET /api/produksi/laporan`)*
+- **Fungsi**: Mengambil seluruh baris pesanan pelanggan dari tabel `rincian_product_harian` langsung dari database untuk merender tabel di halaman Dashboard dan pop-up **Cetak Laporan**.
+- **Query Parameter**:
+  - `periode`: `harian` (hari ini), `mingguan` (7 hari terakhir), `bulanan` (bulan ini), `semua`
+  - `start_date`, `end_date`: Filter rentang tanggal kalender (YYYY-MM-DD WIB)
+  - `status`: `Lunas`, `Belum lunas`, atau `semua`
+  - `q`: Pencarian nama pelanggan, ID, atau tanggal
+  - `page`: Nomor halaman (default 1)
+  - `limit`: Jumlah data per halaman (default 20)
+  - `all=true` *(atau `limit=0`)*: Mengambil **SEMUA baris** tanpa terpotong paginasi untuk kebutuhan tombol **Cetak Laporan**.
+- **Respon Sukses (200)**:
+```json
+{
+  "status": "success",
+  "message": "Data rincian dan laporan produksi berhasil dimuat langsung dari database",
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 17,
+    "total_pages": 1
+  },
+  "ringkasan": {
+    "total_baris": 17,
+    "total_cetak": 402,
+    "total_masak": 67,
+    "total_harga": 16884000,
+    "total_harga_rupiah": "Rp 16.884.000",
+    "total_sisa_belum_lunas": 12450000,
+    "total_sisa_belum_lunas_rupiah": "Rp 12.450.000",
+    "total_terbayar": 4434000,
+    "total_terbayar_rupiah": "Rp 4.434.000",
+    "jumlah_lunas": 5,
+    "jumlah_belum_lunas": 12
+  },
+  "data": [
+    {
+      "id": 23,
+      "tanggal": "2026-11-16",
+      "waktu_wib": "16 Nov 2026, 16:43 WIB",
+      "nama": "bu rudi",
+      "jumlah_cetak": 24,
+      "jumlah_masak": 4,
+      "total": 1008000,
+      "total_rupiah": "Rp 1.008.000",
+      "sisa": 1008000,
+      "sisa_rupiah": "Rp 1.008.000",
+      "status_pembayaran": "Belum lunas",
+      "terbayar": 0,
+      "terbayar_rupiah": "Rp 0"
+    }
+  ]
+}
+```
+
+---
+
 ## ⚙️ 3. MENU PENGATURAN
 
 Menu Pengaturan mencakup 3 sub-modul utama:
