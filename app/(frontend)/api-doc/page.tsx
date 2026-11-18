@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import "swagger-ui-react/swagger-ui.css";
+import { notFound } from "next/navigation";
 
 /*
  * swagger-ui-react hanya bisa jalan di browser (mengakses window saat render),
@@ -19,6 +19,11 @@ const SwaggerUI = dynamic(() => import("swagger-ui-react"), {
 type Status = "memeriksa" | "boleh" | "ditolak";
 
 export default function ApiDocPage() {
+  // ── KUNCI PRODUCTION: Jika di Vercel/Production, Swagger dinonaktifkan (404) ──
+  if (process.env.NODE_ENV === "production") {
+    notFound();
+  }
+
   const [status, setStatus] = useState<Status>("memeriksa");
 
   /*
@@ -83,6 +88,11 @@ export default function ApiDocPage() {
 
   return (
     <section className="container mx-auto p-4">
+      {/* Stylesheet Swagger UI (dimuat via CDN aman agar tidak memicu error kompilasi PostCSS/Turbopack) */}
+      <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.11.0/swagger-ui.min.css"
+      />
       <h1 className="mb-4 text-2xl font-bold">API Documentation</h1>
       <div className="rounded bg-white p-4 shadow">
         <SwaggerUI url="/api/swagger" />

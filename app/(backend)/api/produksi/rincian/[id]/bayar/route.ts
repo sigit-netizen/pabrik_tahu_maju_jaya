@@ -94,19 +94,60 @@ export async function POST(
       );
     }
 
-    // 1. Ambil data rincian pesanan dari database
-    const { data: row, error: fetchErr } = await supabase
-      .from('rincian_product_harian')
-      .select('id, created_at, nama, jumlah_cetak, jumlah_masak, total, sisa, status_pembayaran')
-      .eq('id', numericId)
-      .single();
+    // 1. Tentukan target baris rincian pesanan dari database:
+    // a. Cek apakah ada rincian_id eksplisit di body
+    const bodyRincianId = body.rincian_id ? parseInt(body.rincian_id, 10) : null;
+    let targetRow: any = null;
 
-    if (fetchErr || !row) {
+    if (bodyRincianId && !isNaN(bodyRincianId)) {
+      const { data: rRow } = await supabase
+        .from('rincian_product_harian')
+        .select('id, created_at, nama, jumlah_cetak, jumlah_masak, total, sisa, status_pembayaran')
+        .eq('id', bodyRincianId)
+        .maybeSingle();
+      if (rRow) targetRow = rRow;
+    }
+
+    // b. Jika belum ketemu, cek apakah numericId cocok dengan product_harian (ID baris di rekap dashboard)
+    if (!targetRow) {
+      const { data: phRow } = await supabase
+        .from('product_harian')
+        .select('id, created_at')
+        .eq('id', numericId)
+        .maybeSingle();
+
+      if (phRow) {
+        // Ambil rincian_product_harian yang memiliki created_at sama
+        const { data: rRow } = await supabase
+          .from('rincian_product_harian')
+          .select('id, created_at, nama, jumlah_cetak, jumlah_masak, total, sisa, status_pembayaran')
+          .eq('created_at', phRow.created_at)
+          .order('id', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (rRow) targetRow = rRow;
+      }
+    }
+
+    // c. Jika belum ketemu, cari langsung by id di rincian_product_harian
+    if (!targetRow) {
+      const { data: rRow } = await supabase
+        .from('rincian_product_harian')
+        .select('id, created_at, nama, jumlah_cetak, jumlah_masak, total, sisa, status_pembayaran')
+        .eq('id', numericId)
+        .maybeSingle();
+      if (rRow) targetRow = rRow;
+    }
+
+    if (!targetRow) {
       return NextResponse.json(
         { status: 'error', message: `Data pesanan pelanggan dengan ID #${id} tidak ditemukan.` },
         { status: 404 }
       );
     }
+
+    const row = targetRow;
+    const targetNumericId = Number(row.id);
 
     // 2. Ambil nilai sisa sebelumnya (fallback ke total jika sisa di DB masih NULL)
     const totalHarga = Number(row.total) || 0;
@@ -120,7 +161,7 @@ export async function POST(
       return NextResponse.json(
         {
           status: 'error',
-          message: `Pesanan ID #${id} atas nama "${row.nama}" sudah berstatus LUNAS. Tidak ada sisa tagihan.`,
+          message: `Pesanan ID #${row.id} atas nama "${row.nama}" sudah berstatus LUNAS. Tidak ada sisa tagihan.`,
         },
         { status: 400 }
       );
@@ -152,7 +193,7 @@ export async function POST(
         sisa: sisaBaru,
         status_pembayaran: statusBaru,
       })
-      .eq('id', numericId)
+      .eq('id', targetNumericId)
       .select()
       .single();
 

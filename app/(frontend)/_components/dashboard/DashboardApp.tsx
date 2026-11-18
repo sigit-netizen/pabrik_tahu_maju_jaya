@@ -417,6 +417,7 @@ export default function DashboardApp() {
                 mode={mode}
                 setMode={setMode}
                 onTotalsChange={handleTotalsChange}
+                onToast={onToast}
               />
             </div>
           )}
@@ -439,7 +440,9 @@ export default function DashboardApp() {
           <footer className={`mt-6 flex flex-wrap items-center justify-between gap-2 border-t pt-4 text-[11px] font-medium ${dark ? "border-cream/10 text-cream/50" : "border-line text-pine/50"}`}>
             <p>© 2026 Pabrik Tahu Maju Jaya — dicatat rapi, dijual berkah.</p>
             <p className="flex items-center gap-3">
-              <Link href="/api-doc" className="font-bold hover:underline">API Doc</Link>
+              {process.env.NODE_ENV !== "production" && (
+                <Link href="/api-doc" className="font-bold hover:underline">API Doc</Link>
+              )}
               <button onClick={keluarPengguna} className="font-bold hover:underline">Keluar</button>
               <span className="font-mono">palet #F6F1E7 • #14342B • #D97706</span>
             </p>
