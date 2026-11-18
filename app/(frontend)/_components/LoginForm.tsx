@@ -62,7 +62,7 @@ export default function LoginForm() {
         } else if (res.status === 403) {
           setError(json.message || "Akun Anda belum disetujui administrator. Hubungi admin pabrik.");
         } else if (res.status === 401) {
-          setError("Akses ditolak. Hubungi administrator.");
+          setError(json.message || "Akses ditolak. Hubungi administrator.");
         } else if (res.status === 429) {
           setError("Terlalu banyak percobaan. Tunggu 1 menit lalu coba lagi.");
         } else {
