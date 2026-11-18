@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { supabase } from "@/lib/supabase";
+import bcrypt from "bcryptjs";
 
-// PROXY server-side untuk register: browser -> /api/auth/register -> server
-// menyuntikkan API_SECRET_KEY -> /api/register. Secret tetap di server.
+// Endpoint Autentikasi Register Server-Side (Langsung ke Supabase tanpa loopback HTTP fetch)
 export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 8 * 1024;
-
-function getSafeOrigin(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  const port = process.env.PORT || "3000";
-  return `http://127.0.0.1:${port}`;
-}
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "127.0.0.1";
@@ -27,15 +22,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: "error", message: "Payload terlalu besar" }, { status: 413 });
   }
 
-  const secret = process.env.API_AUTH_KEY || process.env.API_SECRET_KEY;
-  if (!secret) {
-    return NextResponse.json(
-      { status: "error", message: "Server misconfiguration: API_AUTH_KEY / API_SECRET_KEY hilang" },
-      { status: 500 }
-    );
-  }
-
-  let body: unknown;
+  let body: Record<string, unknown>;
   try {
     const text = await req.text();
     if (text.length > MAX_BODY_BYTES) {
@@ -47,47 +34,75 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: "error", message: "Body JSON tidak valid" }, { status: 400 });
   }
 
+  const username = typeof body.username === "string" ? body.username.trim() : "";
+  const email = typeof body.email === "string" ? body.email.trim() : "";
+  const password = typeof body.password === "string" ? body.password : "";
+
+  if (!username || !email || !password) {
+    return NextResponse.json(
+      { status: "error", message: "Username, email, dan password wajib diisi!" },
+      { status: 400 }
+    );
+  }
+
+  if (password.length < 4) {
+    return NextResponse.json(
+      { status: "error", message: "Password harus terdiri dari minimal 4 karakter!" },
+      { status: 400 }
+    );
+  }
+
   try {
-    const target = `${getSafeOrigin()}/api/register`;
+    // 1. Cek apakah email sudah terdaftar
+    const { data: existingUsers } = await supabase
+      .from("admin")
+      .select("id")
+      .eq("email", email);
 
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "x-api-key": secret,
-      "x-forwarded-for": ip,
-    };
-
-    const res = await fetch(target, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      cache: "no-store",
-    });
-
-    const text = await res.text();
-    // Sanitasi: backend /api/register membocorkan hash password di field `data`.
-    // Proxy membersihkan sebelum diteruskan ke browser (tanpa ubah backend).
-    try {
-      const json = JSON.parse(text) as Record<string, unknown>;
-      if (Array.isArray(json.data)) {
-        json.data = (json.data as Record<string, unknown>[]).map(
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          ({ password: _pw, ...rest }) => rest
-        );
-      } else if (json.data && typeof json.data === "object") {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { password: _pw2, ...rest } = json.data as Record<string, unknown>;
-        json.data = rest;
-      }
-      if (json.details) delete json.details;
-      return NextResponse.json(json, { status: res.status });
-    } catch {
-      return new NextResponse(text, {
-        status: res.status,
-        headers: { "Content-Type": "application/json" },
-      });
+    if (existingUsers && existingUsers.length > 0) {
+      return NextResponse.json(
+        { status: "error", message: "Email sudah terdaftar. Silakan gunakan email lain!" },
+        { status: 400 }
+      );
     }
-  } catch {
-    console.error("[auth/register proxy] fetch failed");
-    return NextResponse.json({ status: "error", message: "Gagal menghubungi backend" }, { status: 502 });
+
+    // 2. Hash password dengan bcrypt
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // 3. Masukkan ke tabel admin dengan status 2 (pending approval)
+    const { data, error } = await supabase
+      .from("admin")
+      .insert([
+        {
+          username,
+          email,
+          password: hashedPassword,
+          status: 2,
+        },
+      ])
+      .select("id, username, email, status");
+
+    if (error) {
+      return NextResponse.json(
+        { status: "error", message: "Gagal menyimpan data pendaftaran ke database", details: error.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        status: "success",
+        message: "Registrasi berhasil! Akun Anda sedang menunggu persetujuan Administrator.",
+        data,
+      },
+      { status: 201 }
+    );
+  } catch (err) {
+    console.error("[auth/register] error:", err);
+    return NextResponse.json(
+      { status: "error", message: "Terjadi kesalahan internal server saat memproses registrasi" },
+      { status: 500 }
+    );
   }
 }
