@@ -50,11 +50,12 @@ import { checkRateLimit } from '@/lib/rate-limit';
  */
 export async function POST(request: Request) {
   try {
-    // --- KEAMANAN LAPIS 1: Cek Internal API Key ---
+    // --- KEAMANAN LAPIS 1: Cek Internal API Key (Kunci Sebelum Login) ---
     const apiKey = request.headers.get('x-api-key');
-    if (apiKey !== process.env.API_SECRET_KEY) {
+    const validKey = process.env.API_AUTH_KEY || process.env.API_SECRET_KEY;
+    if (apiKey !== validKey) {
       return NextResponse.json(
-        { status: 'error', message: 'Akses Ditolak: API Key tidak valid atau tidak ditemukan!' },
+        { status: 'error', message: 'Akses Ditolak: API Key sebelum login tidak valid atau tidak ditemukan!' },
         { status: 401 }
       );
     }
